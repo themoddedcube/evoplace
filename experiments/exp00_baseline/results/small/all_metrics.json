@@ -1,28 +1,28 @@
 {
   "fft_1": {
     "metrics": {
-      "hpwl": 418781575.43954617,
-      "mean_overflow": 0.056618149381077634,
-      "top5_overflow": 0.14154537345269408,
-      "tns_proxy": 8433294.75868385
+      "hpwl": 2182147.0,
+      "mean_overflow": 1.0,
+      "top5_overflow": 1.0,
+      "tns_proxy": 43642.94
     },
-    "runtime_s": 67.1210609695827,
-    "divergence_events": 3,
-    "converged": true,
+    "runtime_s": 825.8884586539998,
+    "divergence_events": 0,
+    "converged": false,
     "stage": 0,
-    "fitness": 6700505207.032739
+    "fitness": 2182147.0
   },
   "fft_2": {
     "metrics": {
-      "hpwl": 376788757.0384951,
-      "mean_overflow": 0.042699873272639716,
-      "top5_overflow": 0.10674968318159929,
-      "tns_proxy": 7060294.2256749645
+      "hpwl": 2489532.5,
+      "mean_overflow": 1.0,
+      "top5_overflow": 1.0,
+      "tns_proxy": 49790.65
     },
-    "runtime_s": 38.35825532237017,
-    "divergence_events": 2,
-    "converged": true,
+    "runtime_s": 77.5922545809999,
+    "divergence_events": 0,
+    "converged": false,
     "stage": 0,
-    "fitness": 4144676327.423446
+    "fitness": 2489532.5
   }
 }

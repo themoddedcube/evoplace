@@ -64,11 +64,134 @@ Handcrafted schedules (γ, λ) in DREAMPlace are a local optimum in algorithm de
 
 ---
 
+## 2026-06-04 — Klein-4 Empirical Validation of EvoPlace Thesis
+
+Results from Klein-4 (2026 Macro Placement Challenge, #1 by proxy cost) directly validate and sharpen EvoPlace's core claims. Full NG45/ORFS measurement campaign completed.
+
+### Finding 1 — Proxy→Timing Rank Inversion (Controlled Triple)
+
+**Setup**: same design (mempool_tile, NanGate45, 4ns clock), same ORFS flow, same machine, three macro placements differing only in engine state.
+
+| Placement | Proxy cost | WNS (ns) | TNS (ps) |
+|-----------|-----------|----------|----------|
+| Engine-cold | 0.7092 | −1.908 | −12,633 |
+| OpenROAD RTL-MP baseline | — | −1.946 | −13,938 |
+| Engine-warm (best proxy) | **0.6666** | **−2.089** | **−14,484** |
+
+Best proxy cost → worst timing. Campaign-wide Kendall τ ≈ 0.05 proxy↔WNS.
+
+**Implication for EvoPlace**: The proxy doesn't just decorrelate from timing — optimizing it can actively hurt timing. This is EvoPlace's core motivation backed by a clean controlled experiment. Any evolution fitness that maximises proxy (HPWL/density/congestion) is solving the wrong problem.
+
+### Finding 2 — Timing Failures Are Structural; Objective Must See Clock/Path Structure
+
+mempool's −1.9ns WNS is dominated by half-cycle latch paths: level-sensitive latches clocked on the inverted phase have a 2ns budget at a 4ns period, with ~1.5ns clock insertion delay already consuming most of that window. No wirelength-shaped objective can see this.
+
+**Research task (highest-leverage)**: design fitness/loss features around per-path-group slack budgets. Latch/half-cycle groups must be weighted separately from flop-to-flop paths. Even a static pre-CTS required-time estimate (zero CTS insertion, ideal clock) gives the optimizer the structural signal it needs. Key sub-problems:
+- Parse timing graph to classify path groups: FF→FF, FF→latch, latch→FF, latch→latch (half-cycle)
+- Assign per-group slack budgets: half-cycle groups get `T/2 − t_cq_budget`; FF groups get `T − t_setup`
+- Weight net criticality by path-group budget rather than global slack
+- Differentiable formulation compatible with DREAMPlace's WA-WL loss
+
+### Finding 3 — Compute Ladder for Timing-in-the-Loss
+
+Cheapest-first ranking:
+
+| Rung | Method | Cost | Differentiable |
+|------|--------|------|---------------|
+| (a) | Elmore/criticality-weighted wirelength | ~free | Yes |
+| (b) | Periodic GPU-STA refresh, net weights updated every N iters | ~2–4× per affected iter | No (weights fixed between refreshes) |
+| (c) | Learned timing predictor as fitness surrogate | training cost amortised | Yes |
+
+**Architecture trick**: in multi-restart schemes, keep broad search timing-blind; apply timing term only to top-k survivors (~20% of compute). Benchmark each rung's marginal cost vs TNS-fitness fidelity.
+
+### Finding 4 — Cautionary Prior Art for the Evolution Loop
+
+A prior OpenEvolve run over placement hyperparameters ended 13% worse after 16 generations. Post-mortem:
+- Single-benchmark fitness → overfit; candidate that wins fft_1 may lose everywhere else
+- Several evolved parameters were dead code paths (never executed by the real optimizer)
+- Search space too narrow on parameters that actually mattered
+
+**Mitigations already in EvoPlace / to implement**:
+- [x] Evolve schedule functions (not scalar knobs) — larger, executable search space
+- [ ] Multi-design fitness from day one: score = mean(norm_hpwl across fft_1 + fft_2 + des_perf_1)
+- [ ] Coverage assertions: inject tracing into evolved function to confirm all branches execute at least once per eval run
+- [ ] Diversity maintenance: reject candidates with hash collision against top-10 archive
+
+### ORFS Evaluator Gotchas (for Exp 4–5 TNS measurement through OpenROAD)
+
+1. **"repair_timing converged to 0.000" ≠ signoff** — only post-route extracted STA (`6_finish.rpt`) counts; pre-route STA against estimated parasitics routinely flatters by 0.3–0.5ns.
+2. **Per-design WNS ceilings** — ORFS CI accepts negative WNS on ariane133/136 (rules-base.json: −0.464/−0.300). Calibrate fitness expectations to each design's real ceiling, not zero.
+3. **Genus-netlist instance name mangling** — ODB stores names with literal backslashes (`macro_mem\[0\].i_ram`); Yosys mangles to `_0__` form. Name matching must handle both.
+4. **LEC binary AVX-512 requirement** — kepler-formal LEC SIGILLs on Zen 3 CPUs. Set `LEC_CHECK=0` (verification-only, netlist-invariant).
+
+---
+
+## 2026-06-04 — Exp 4 Implementation: Path-Group-Aware Timing Fitness
+
+Designed and implemented the path-group-aware timing fitness in response to Finding 2. Full 9-check test suite passes.
+
+### Architecture (Variant A — static weights into placedb.net_weights)
+
+1. **`models/path_group_classifier.py`** — classifies each net by endpoint sequential type (FF→FF, FF→Latch, Latch→FF, Latch→Latch half-cycle, Unconstrained). Parses Liberty `.lib` for cell type (FF/LATCH/COMB) and SDC for clock period. Assigns per-net criticality weight = T / RT(group), clamped to [1.0, 10.0].
+
+2. **`models/path_group_loss.py`** — `apply_weights_variant_a(placedb, pg_data)` writes weights into `placedb.net_weights` before `NonLinearPlace` runs. The existing WA-WL CUDA kernel multiplies by `net_weights` automatically — zero new GPU code. Also provides `make_timing_hook()` for future Variant B (optimizer-loop hook injection).
+
+3. **`evaluator/run_placement.py`** — calls `_apply_path_group_weights()` after `placedb(params)`. Silently no-ops on ISPD 2015 (no SDC).
+
+4. **`dreamplace_ext/hooks.py`** — added `set/get_path_group_data()` singleton.
+
+5. **`evolve/evaluator_wrapper.py`** — added `exp04_timing_pathgroup` config; fitness metric is now per-experiment (`normalized_hpwl` for Exp 1/2, `tns_proxy` for Exp 4).
+
+### Measured weights for mempool_tile NanGate45, T=4ns
+
+| Group | Budget (ps) | Weight |
+|-------|-------------|--------|
+| FF→FF | 3330 | 1.20× |
+| FF→Latch | 1320 | 3.03× |
+| Latch→FF | 1150 | 3.48× |
+| Latch→Latch (half-cycle) | 1070 | 3.74× |
+| Unconstrained | — | 1.00× |
+
+### Known limitations (v1)
+
+- Static weights only; dynamic Elmore-based update deferred to v2
+- `_get_cell_master()` falls back to instance-name prefix heuristic if `placedb.rawdb.cellTypeName()` not available — may misclassify uncommon cell naming conventions
+- Latch→Latch always treated as half-cycle (conservative); polarity parsing from Liberty deferred
+- Exp 4 benchmark (`mempool_tile`) not yet downloaded; exp04 evolution run pending ICCAD 2015 data
+
+---
+
+## 2026-06-04 — Exp 0 Baselines (CPU, ISPD 2015)
+
+Real DREAMPlace 4.0 runs completed on WSL2 Ubuntu 24.04, Intel CPU, no GPU. Overflow = 1.0 in all cases — CPU cannot converge in 1000 iterations. GPU baseline on DGX will be significantly lower.
+
+| Circuit | HPWL | Overflow | Runtime |
+|---------|------|----------|---------|
+| fft_1 | 2,182,147 | 1.00 | 826 s |
+| fft_2 | 2,489,532 | 1.00 | 78 s |
+
+## 2026-06-04 — Exp 1 Smoke Test (20-iter γ Evolution, CPU)
+
+20 LLM-guided evolution iterations on fft_1. Best candidate: seed linear-decay schedule (norm_hpwl = 2.254, HPWL = 4.92M at 50 iters). No mutation beat the seed.
+
+**Conclusion**: pipeline validated end-to-end. 50-iter CPU eval too noisy to drive selection (σ ≈ 1% = magnitude of any schedule improvement). Interesting LLM mutations generated (cosine-annealing, overflow-adaptive blend, HPWL-trend detection) — save as warm starts for GPU runs. Real evolution requires convergent GPU placement (~300+ iter eval).
+
+**Known issue**: fitness scores inflated 2× vs Exp 0 because eval runs only 50 iters (HPWL ~4.9M vs converged ~2.2M). Normalisation is internally consistent but cross-experiment comparison requires matching iteration counts.
+
+---
+
 ## TODO
 
-- [ ] Exp 0: Reproduce DREAMPlace 4.0 baselines on ISPD 2015 + ICCAD 2015
-- [ ] Exp 1: Run OpenEvolve on γ schedule (WL smoothing)
+- [x] Exp 0: Reproduce DREAMPlace 4.0 baselines on ISPD 2015 (CPU done; GPU pending DGX)
+- [x] Exp 1: γ schedule evolution smoke test (pipeline validated; convergent GPU run pending)
+- [ ] Exp 1b: γ evolution on GPU (300-iter eval, multi-design fitness, coverage assertions)
 - [ ] Exp 2: Run OpenEvolve on λ schedule (density weight)
+- [ ] Exp 2b: Multi-design fitness harness (fft_1 + fft_2 + des_perf_1 mean score)
 - [ ] Exp 3: Train GNN initializer, measure iteration reduction
-- [ ] Exp 4: Train timing surrogate MLP, integrate into loss
+- [ ] Exp 4: Path-group-aware timing fitness (latch/half-cycle groups, static pre-CTS slack budgets)
+- [ ] Exp 4b: Elmore-weighted wirelength baseline (rung (a) of compute ladder)
+- [ ] Exp 4c: Periodic GPU-STA net weight refresh (rung (b))
+- [ ] Exp 4d: Learned timing surrogate (rung (c))
 - [ ] Exp 5: Full system integration, final benchmark comparison
+- [ ] Harness: coverage assertions for evolved functions (confirm all branches execute)
+- [ ] Harness: multi-design fitness aggregation

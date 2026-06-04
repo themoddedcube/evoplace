@@ -36,24 +36,69 @@ logger = logging.getLogger(__name__)
 # DreamPlace Python API wrapper
 # ---------------------------------------------------------------------------
 
+# Use the no-space symlink path (~/evoplace) if available — DreamPlace's C++ place_io
+# parser splits file paths on whitespace, so paths with spaces cause assertion failures.
+_SYMLINK = Path.home() / "evoplace"
+_EFFECTIVE_ROOT = _SYMLINK if _SYMLINK.exists() else PROJECT_ROOT
+DREAMPLACE_ROOT = _EFFECTIVE_ROOT / "vendor" / "dreamplace"
+DREAMPLACE_INSTALL = DREAMPLACE_ROOT / "install"
+
+_dreamplace_loaded = False
+
+
 def load_dreamplace():
-    """Import DreamPlace modules from the vendor submodule."""
-    dreamplace_root = PROJECT_ROOT / "vendor" / "dreamplace"
-    if not dreamplace_root.exists():
+    """Import DreamPlace modules from the CMake install directory."""
+    global _dreamplace_loaded
+    if not DREAMPLACE_ROOT.exists():
         raise RuntimeError(
-            f"DreamPlace not found at {dreamplace_root}. "
+            f"DreamPlace not found at {DREAMPLACE_ROOT}. "
             "Run: git submodule update --init vendor/dreamplace"
         )
-    sys.path.insert(0, str(dreamplace_root))
+    # CMake installs the complete Python package + .so files to install/
+    # DreamPlace uses bare imports (e.g. `import Params`), so install/dreamplace/
+    # must also be on sys.path, not just install/.
+    install_dir = DREAMPLACE_INSTALL if DREAMPLACE_INSTALL.exists() else DREAMPLACE_ROOT
+    for p in [str(install_dir), str(install_dir / "dreamplace")]:
+        if p not in sys.path:
+            sys.path.insert(0, p)
     try:
-        import dreamplace.BasicPlace as BasicPlace
+        import dreamplace.Params as Params
         import dreamplace.PlaceDB as PlaceDB
-        return BasicPlace, PlaceDB
+        import dreamplace.NonLinearPlace as NonLinearPlace
+        _dreamplace_loaded = True
+        return Params, PlaceDB, NonLinearPlace
     except ImportError as e:
+        install_cmd = (
+            "mkdir -p vendor/dreamplace/build && "
+            "cd vendor/dreamplace/build && "
+            "cmake .. -DCMAKE_INSTALL_PREFIX=../install -DCMAKE_CXX_ABI=1 "
+            "-DPython_EXECUTABLE=$(which python3) && "
+            "make -j$(nproc) && make install"
+        )
         raise RuntimeError(
             f"Failed to import DreamPlace: {e}. "
-            "Did you build it? Run: cd vendor/dreamplace && python setup.py build_ext --inplace"
+            f"Build with:\n  {install_cmd}"
         ) from e
+
+
+def _resolve_paths(params_dict: Dict[str, Any], base_dir: Path) -> Dict[str, Any]:
+    """Make relative file paths in a DreamPlace params dict absolute."""
+    path_keys = ["aux_input", "def_input", "verilog_input", "sdc_input",
+                 "lib_input", "detailed_place_engine"]
+    list_path_keys = ["lef_input"]
+    result = dict(params_dict)
+    for key in path_keys:
+        val = result.get(key)
+        if val and not os.path.isabs(val):
+            result[key] = str(base_dir / val)
+    for key in list_path_keys:
+        val = result.get(key)
+        if val:
+            result[key] = [
+                str(base_dir / v) if not os.path.isabs(v) else v
+                for v in (val if isinstance(val, list) else [val])
+            ]
+    return result
 
 
 def build_dreamplace_params(
@@ -81,20 +126,67 @@ def build_dreamplace_params(
     with open(base_config_path) as f:
         params = json.load(f)
 
+    # Resolve relative paths. JSON configs use paths relative to DREAMPLACE_ROOT
+    # (the DreamPlace directory where benchmarks/ lives after download).
+    params = _resolve_paths(params, DREAMPLACE_ROOT)
+
     params["result_dir"] = str(output_dir)
-    params["gpu"] = 1
-    params["num_threads"] = 8
+    params["gpu"] = 0   # CPU-only until DGX arrives; overridden to 1 on GPU machines
+    params["num_threads"] = max(1, os.cpu_count() or 8)
+    params["plot_flag"] = 0
     params["global_place_stages"] = [
         {
             "num_bins_x": 512,
             "num_bins_y": 512,
             "iteration": max_iterations,
             "learning_rate": 0.01,
+            "wirelength": "weighted_average",
+            "optimizer": "nesterov",
             "stop_overflow": 0.07,
         }
     ]
 
     return params
+
+
+# ---------------------------------------------------------------------------
+# Path-group timing weight injection (Exp 4, Variant A)
+# ---------------------------------------------------------------------------
+
+def _apply_path_group_weights(placedb, params_dict: Dict[str, Any]):
+    """
+    Classify nets by timing path group and write criticality weights to
+    placedb.net_weights before NonLinearPlace runs.
+
+    Silently skips if no Liberty/SDC files are in params_dict (ISPD 2015),
+    or if the classifier raises (import error, parse failure, etc.).
+    """
+    sdc_path = params_dict.get("sdc_input") or None
+    lib_paths = params_dict.get("lib_input") or params_dict.get("late_lib_input") or []
+    if isinstance(lib_paths, str):
+        lib_paths = [lib_paths]
+
+    # Need at least one .lib and an SDC to do anything useful
+    if not sdc_path or not lib_paths:
+        return
+
+    try:
+        from models.path_group_classifier import (
+            PathGroupConfig, classify_nets, parse_liberty_cell_types,
+        )
+        from models.path_group_loss import apply_weights_variant_a
+        from dreamplace_ext import hooks
+
+        cell_type_map: Dict[str, str] = {}
+        for lp in lib_paths:
+            cell_type_map.update(parse_liberty_cell_types(lp))
+
+        pg_data = classify_nets(placedb, cell_type_map, sdc_path, PathGroupConfig())
+        hooks.set_path_group_data(pg_data)
+        apply_weights_variant_a(placedb, pg_data)
+
+    except Exception as e:
+        logger.warning(f"Path-group weight setup failed (falling back to plain WL): {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +327,7 @@ def run_placement(
 
     # Real DreamPlace path (requires built vendor/dreamplace)
     try:
-        BasicPlace, PlaceDB = load_dreamplace()
+        DPParams, PlaceDB, NonLinearPlace = load_dreamplace()
     except RuntimeError:
         logger.warning("DreamPlace not available; falling back to stub")
         return run_placement_stub(
@@ -251,7 +343,7 @@ def run_placement(
     hooks.set_init_positions(init_positions_fn)
     hooks.set_timing_loss(timing_loss_fn)
 
-    params = build_dreamplace_params(
+    params_dict = build_dreamplace_params(
         benchmark_dir, output_dir,
         gamma_schedule_fn, lambda_schedule_fn,
         init_positions_fn, timing_loss_fn,
@@ -259,29 +351,74 @@ def run_placement(
     )
 
     t0 = time.perf_counter()
+    divergence = 0
     try:
-        db = PlaceDB.PlaceDB()
-        db(params)
-        placer = BasicPlace.BasicPlace(params, db)
-        metrics_raw = placer(params, db)
+        # Build Params object (loads defaults from dreamplace/params.json first)
+        params = DPParams.Params()
+        params.fromJson(params_dict)
+
+        # Read the design into the placement database
+        placedb = PlaceDB.PlaceDB()
+        placedb(params)
+
+        # Path-group timing weights (Exp 4 / Variant A).
+        # Runs only when both Liberty and SDC inputs are present in params.
+        # On ISPD 2015 (no SDC) this is a no-op; all net_weights remain 1.0.
+        _apply_path_group_weights(placedb, params_dict)
+
+        # Run global placement (+ legalization + detailed if configured)
+        learning_rate = params_dict["global_place_stages"][0].get("learning_rate", 0.01)
+        placer = NonLinearPlace.NonLinearPlace(params, placedb, timer=None)
+        all_metrics = placer(params, placedb, learning_rate)
+
         runtime = time.perf_counter() - t0
         divergence = hooks.get_divergence_count()
         hooks.reset()
 
+        # all_metrics is a flat list of EvalMetrics objects (one per stage: gp, legalize, dp)
+        # Find the last entry with a valid hpwl value.
+        def _scalar(v):
+            if v is None:
+                return float("inf")
+            return float(v.item()) if hasattr(v, "item") else float(v)
+
+        last = None
+        for m in reversed(all_metrics):
+            if m is not None and m.hpwl is not None:
+                last = m
+                break
+
+        if last is None:
+            raise RuntimeError("No valid EvalMetrics found in all_metrics")
+
+        overflow_val = last.overflow
+        if overflow_val is not None and hasattr(overflow_val, "__len__") and len(overflow_val) > 0:
+            mean_ovf = _scalar(overflow_val[-1])
+        elif overflow_val is not None:
+            mean_ovf = _scalar(overflow_val)
+        else:
+            mean_ovf = 1.0
+
+        hpwl_val = _scalar(last.hpwl)
+        # TNS: use real value if timing was run, else proxy from HPWL
+        tns_val = _scalar(last.tns) if last.tns is not None else hpwl_val * 0.02
+
         metrics = {
-            "hpwl": float(metrics_raw.get("hpwl", 0)),
-            "mean_overflow": float(metrics_raw.get("overflow", 0)),
-            "top5_overflow": float(metrics_raw.get("top5_overflow", 0)),
-            "tns_proxy": float(metrics_raw.get("tns", 0)),
+            "hpwl": hpwl_val,
+            "mean_overflow": mean_ovf,
+            "top5_overflow": mean_ovf,
+            "tns_proxy": tns_val,
         }
-        return PlacementResult(metrics, runtime, divergence, converged=True)
+        return PlacementResult(metrics, runtime, divergence, converged=mean_ovf < 0.1)
 
     except Exception as e:
         runtime = time.perf_counter() - t0
-        logger.error(f"DreamPlace failed: {e}")
+        hooks.reset()
+        logger.error(f"DreamPlace failed: {e}", exc_info=True)
         return PlacementResult(
-            {"hpwl": float("inf"), "mean_overflow": 1.0, "top5_overflow": 1.0, "tns_proxy": float("inf")},
-            runtime, divergence_events=99, converged=False
+            {"hpwl": float("inf"), "mean_overflow": 1.0,
+             "top5_overflow": 1.0, "tns_proxy": float("inf")},
+            runtime, divergence_events=divergence + 99, converged=False
         )
 
 
