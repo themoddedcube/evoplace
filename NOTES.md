@@ -72,3 +72,71 @@ Handcrafted schedules (γ, λ) in DREAMPlace are a local optimum in algorithm de
 - [ ] Exp 3: Train GNN initializer, measure iteration reduction
 - [ ] Exp 4: Train timing surrogate MLP, integrate into loss
 - [ ] Exp 5: Full system integration, final benchmark comparison
+
+---
+
+## 2026-06-04 — Empirical Lessons Imported from the Macro Placement Challenge Campaign (Klein-4)
+
+Cross-pollination from the NG45/ORFS measurement campaign in
+`autoresearch-macro-place-challenge-2026` (see its `docs/paper/NOTES.md` for
+raw data). Three findings bear directly on EvoPlace's thesis and design.
+
+### 1. Direct evidence the proxy/timing gap is real — and can invert
+
+Same design (mempool_tile NG45), same ORFS flow, same machine, three macro
+placements:
+
+| placement | proxy cost | post-route WNS | post-route TNS |
+|---|---|---|---|
+| engine cold | 0.7092 | **-1.908** | **-12,633** |
+| RTL-MP baseline | n/a | -1.946 | -13,938 |
+| engine warm (best proxy) | **0.6666** | -2.089 (worst) | -14,484 |
+
+The best-proxy placement had the WORST timing — a measured rank inversion,
+not just decorrelation (campaign-wide Kendall tau ≈ 0.05 proxy↔WNS).
+Validates EvoPlace's core premise (optimize TNS, not HPWL/proxy) with a
+clean controlled triple.
+
+### 2. Where timing dies is structural — the loss must see clock/path structure
+
+mempool_tile's -1.9ns is dominated by half-cycle latch paths (level-sensitive
+latches on inverted clock = 2ns budget at 4ns period) with ~1.5ns of clock
+insertion eaten from the window. No wirelength-shaped objective can see this;
+a timing surrogate that knows path budgets (even a static, pre-CTS estimate
+of per-endpoint required times) would. Suggests an EvoPlace fitness/feature:
+per-path-group slack estimates, not just global TNS — latch/half-cycle path
+groups need separate weighting.
+
+### 3. Compute budget for timing-in-the-loss (the practical ladder)
+
+Cost concern is real but bounded; precedent is DREAMPlace 4.0 itself
+(GPU-STA net weighting, ~2-4x per affected iteration). The ladder, cheapest
+first:
+1. Elmore/criticality-weighted wirelength (near-free, differentiable);
+2. periodic GPU-STA refresh every N iters updating net weights
+   (DREAMPlace 4.0 style — already in the EvoPlace backbone);
+3. learned timing predictors as fitness surrogates.
+Architecture trick from the challenge engine's funnel: keep broad cheap
+search timing-blind (scouts), apply the timing term only to top-k survivors
+(extend phase) — pays surrogate cost on ~20% of compute.
+
+### 4. Cautionary prior art for the evolutionary loop itself
+
+The Klein-4 campaign's documented negative result: an OpenEvolve run over CD
+hyperparameters came out 13% WORSE after 16 generations — root causes were
+(a) single-benchmark fitness → overfit, (b) evolved parameters that were
+dead code paths, (c) too-narrow search space on the parameters that mattered.
+EvoPlace mitigations: multi-design fitness from day one; assert evolved
+components are actually exercised (coverage check in the harness); evolve
+schedules/functions, not just scalar knobs.
+
+### Flow-measurement gotchas worth inheriting (ORFS, NG45)
+
+- "Repair converged" != signoff: rsz repair vs estimated parasitics can show
+  0.000 WNS while extracted post-route STA shows -1.9. Only 6_finish.rpt counts.
+- ORFS upstream CI itself accepts negative WNS on ariane133/136
+  (rules-base.json: -0.464/-0.300) — calibrate fitness expectations per design.
+- Genus-netlist designs keep literal-backslash escaped names in ODB
+  (macro_mem\[0\].i_ram) — name-matching code must handle both forms.
+- kepler-formal (LEC) binary requires AVX-512 — SIGILLs on Zen 3 hosts;
+  LEC_CHECK=0 is the surgical disable (verification-only, netlist-invariant).
