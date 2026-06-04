@@ -310,6 +310,10 @@ def main():
         "--backend", choices=["claude-code-cli", "anthropic-api", "gemini"], default=None,
         help="LLM backend (auto-detected if not set)"
     )
+    parser.add_argument(
+        "--output-dir", default=None,
+        help="Override default output directory (default: experiments/<experiment>/evolution_runs)"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -321,7 +325,10 @@ def main():
     backend = args.backend or _detect_backend()
     logger.info(f"LLM backend: {backend}")
 
-    output_dir = PROJECT_ROOT / "experiments" / args.experiment / "evolution_runs"
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = PROJECT_ROOT / "experiments" / args.experiment / "evolution_runs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Experiment: {args.experiment}")

@@ -153,20 +153,25 @@ def build_dreamplace_params(
 # Path-group timing weight injection (Exp 4, Variant A)
 # ---------------------------------------------------------------------------
 
-def _apply_path_group_weights(placedb, params_dict: Dict[str, Any]):
+def _apply_path_group_weights(placedb, params_dict: Dict[str, Any],
+                              activation_overflow: float = 0.3):
     """
-    Classify nets by timing path group and write criticality weights to
-    placedb.net_weights before NonLinearPlace runs.
+    Classify nets by timing path group and register criticality weights for
+    phased activation: weights are applied to data_collections.net_weights only
+    once overflow drops below `activation_overflow` (default 0.3).
 
-    Silently skips if no Liberty/SDC files are in params_dict (ISPD 2015),
-    or if the classifier raises (import error, parse failure, etc.).
+    Applying weights during early global spreading (overflow > 0.3) biases
+    cell distribution before bins have room to spread, causing density hotspots
+    near timing-critical macro clusters.  Phased activation avoids this.
+
+    Silently no-ops if no Liberty/SDC files are in params_dict (ISPD 2015
+    benchmarks have no timing constraints).
     """
     sdc_path = params_dict.get("sdc_input") or None
     lib_paths = params_dict.get("lib_input") or params_dict.get("late_lib_input") or []
     if isinstance(lib_paths, str):
         lib_paths = [lib_paths]
 
-    # Need at least one .lib and an SDC to do anything useful
     if not sdc_path or not lib_paths:
         return
 
@@ -174,7 +179,6 @@ def _apply_path_group_weights(placedb, params_dict: Dict[str, Any]):
         from models.path_group_classifier import (
             PathGroupConfig, classify_nets, parse_liberty_cell_types,
         )
-        from models.path_group_loss import apply_weights_variant_a
         from dreamplace_ext import hooks
 
         cell_type_map: Dict[str, str] = {}
@@ -183,7 +187,11 @@ def _apply_path_group_weights(placedb, params_dict: Dict[str, Any]):
 
         pg_data = classify_nets(placedb, cell_type_map, sdc_path, PathGroupConfig())
         hooks.set_path_group_data(pg_data)
-        apply_weights_variant_a(placedb, pg_data)
+        hooks.set_deferred_net_weights(pg_data.net_weights, threshold=activation_overflow)
+        logger.info(
+            f"Path-group weights registered (activate at overflow ≤ {activation_overflow}): "
+            f"{pg_data.has_timing_constraints} timing nets"
+        )
 
     except Exception as e:
         logger.warning(f"Path-group weight setup failed (falling back to plain WL): {e}")
