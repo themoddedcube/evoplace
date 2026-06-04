@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyd
+
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# Secrets
+*.key
+anthropic_key.txt
+
+# Results (keep structure, ignore large files)
+experiments/*/evolution_runs/*/
+experiments/*/runs/
+!experiments/*/evolution_runs/.gitkeep
+autoresearch/runs/
+
+# Large benchmark files (download separately)
+benchmarks/ispd2015/
+benchmarks/ispd2019/
+benchmarks/iccad2015/
+benchmarks/nangate45/
+!benchmarks/README.md
+
+# DreamPlace build artifacts (submodule, but not build outputs)
+vendor/dreamplace/*.egg-info/
+vendor/dreamplace/build/
+vendor/dreamplace/**/*.so
+vendor/dreamplace/**/*.o
+
+# Model checkpoints (too large for git)
+models/checkpoints/
+*.pt
+*.pth
+!models/README.md
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Graphs (generated, not source)
+graphs/**/*.png
+graphs/**/*.pdf
+!graphs/README.md

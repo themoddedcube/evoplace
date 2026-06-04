@@ -1,0 +1,2 @@
+timestamp	code_hash	normalized_hpwl	hpwl	mean_overflow	tns_proxy	runtime_s	divergence_events	converged
+1780555993	97adb13f	0.965452	4.054900e+08	0.0569	7.710061e+06	8.3	3	True

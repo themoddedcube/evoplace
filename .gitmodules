@@ -1,0 +1,3 @@
+[submodule "vendor/dreamplace"]
+	path = vendor/dreamplace
+	url = https://github.com/themoddedcube/DREAMPlace

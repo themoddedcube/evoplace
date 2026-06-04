@@ -1,0 +1,25 @@
+# Core
+torch>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# DreamPlace dependencies (also required when building vendor/dreamplace)
+cython>=0.29.0
+pyparse>=0.0.1
+
+# Evolution + LLM
+anthropic>=0.40.0
+openai>=1.0.0  # optional, for GPT-based evolution
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Utilities
+tqdm>=4.65.0
+pyyaml>=6.0
+pandas>=2.0.0
+click>=8.0.0
+
+# OpenEvolve (install separately):
+# pip install git+https://github.com/algorithmicsuperintelligence/openevolve.git
