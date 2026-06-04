@@ -170,11 +170,74 @@ Real DREAMPlace 4.0 runs completed on WSL2 Ubuntu 24.04, Intel CPU, no GPU. Over
 | fft_1 | 2,182,147 | 1.00 | 826 s |
 | fft_2 | 2,489,532 | 1.00 | 78 s |
 
+## 2026-06-04 — Architectural Gap: γ/λ Hooks Are Not Wired Into DREAMPlace
+
+**This is the most important architectural fact about the current codebase.**
+
+### What the code does vs. what you'd expect
+
+`run_placement.py` calls:
+```python
+hooks.set_gamma_schedule(gamma_schedule_fn)
+hooks.set_lambda_schedule(lambda_schedule_fn)
+...
+placer = NonLinearPlace.NonLinearPlace(params, placedb, timer=None)
+all_metrics = placer(params, placedb, learning_rate)
+```
+
+The hooks are registered in our module-level singletons. But `NonLinearPlace` is DREAMPlace's own C++/Python code — it knows nothing about our `dreamplace_ext.hooks` module. It never calls `hooks.get_gamma_schedule()`. The hooks are set, then silently ignored. DREAMPlace runs its own built-in linear γ decay and its own λ update rule for the entire placement run, regardless of what function the evolution engine evolved.
+
+### Why this matters
+
+Every "real" (non-stub) run in Exp 1 was measuring vanilla DREAMPlace with the default linear γ schedule, not the LLM-evolved schedule. The 20 candidates scored nearly identically (~2.25 norm_hpwl with ~1% variance) because they were all the same underlying run. The variance we saw was numerical noise from DREAMPlace itself (different random seeds, timer-dependent floating-point order), not schedule differences. The hill-climber had nothing real to climb.
+
+This also means Exp 2 (λ evolution) has the same problem. Any "improvement" found in real-run mode would be a false positive.
+
+The stub evaluator (`run_placement_stub`) does correctly call `gamma_schedule_fn` and rewards monotone-decreasing schedules with a 3% synthetic improvement — this is why the 3-iter smoke test showed a result at all. But the stub is synthetic by design.
+
+### Why the gap exists
+
+DREAMPlace's γ and λ schedules are implemented inside `NesterovPlace.py` (the core optimizer) as hardcoded update rules with JSON-configurable scalar knobs (`gamma`, `density_weight`). There is no callback mechanism. To inject our evolved functions we would need to:
+
+**Option A — Monkey-patch NesterovPlace at runtime.** After `load_dreamplace()` returns, replace `NesterovPlace.NesterovPlace.update_gamma` (or equivalent method) with a wrapper that calls our hook. Fragile if DREAMPlace's internals change, but zero build changes.
+
+**Option B — Fork NesterovPlace.py in the submodule.** Add explicit `if hooks.get_gamma_schedule(): gamma = hooks.get_gamma_schedule()(...)` calls at the right points. Clean, maintainable, requires knowing which method to patch.
+
+**Option C — Pass schedules via JSON params.** DREAMPlace accepts `gamma` as a JSON scalar. We could write a thin outer loop: run 1-iteration DREAMPlace steps, read γ from our hook, write it back to params, re-run. This is ~100× slower (Python loop overhead) but requires no DREAMPlace changes.
+
+**Recommended fix before any real Exp 1/2 results mean anything**: Option B. Identify the γ update in `install/dreamplace/NesterovPlace.py`, add a 3-line hook call, rebuild (or just edit the installed Python file since it's pure Python).
+
+### What IS actually wired: Variant A (placedb.net_weights)
+
+The path-group timing weights added for Exp 4 use a completely different integration point that **does** work today. `placedb.net_weights` is a numpy array that DREAMPlace's WA-WL computation reads directly every iteration via the C++/CUDA `WeightedAverageWirelength` operator. We write to it before `NonLinearPlace` is constructed, so DREAMPlace sees the modified weights from iteration 1. No hook mechanism involved — it's a direct data write to DREAMPlace's own data structures.
+
+This is why the two approaches have different statuses:
+
+| Component | Integration point | Works today? |
+|-----------|------------------|-------------|
+| γ schedule (Exp 1) | `hooks` module → DREAMPlace ignores it | **No** |
+| λ schedule (Exp 2) | `hooks` module → DREAMPlace ignores it | **No** |
+| Path-group net weights (Exp 4) | Direct write to `placedb.net_weights` | **Yes** |
+
+### How DREAMPlace actually uses net_weights
+
+Inside `WeightedAverageWirelength` (the CUDA kernel called every iteration):
+
+```
+WL(net_i) = net_weights[i] × [ WA_x(pins of net_i) + WA_y(pins of net_i) ]
+```
+
+Where `WA_x` is the softmax-weighted span in x using the current γ. So the total loss gradient flowing to cell positions for a critical half-cycle path net is 3–3.5× larger than for an unconstrained net, persistently throughout placement. Cells on those paths are under proportionally more pressure to stay co-located.
+
+The γ schedule controls the smoothness of `WA_x/WA_y` but not the per-net magnitude. The λ schedule controls the density penalty weight. Both are still hardcoded DREAMPlace defaults in real runs — just the per-net scaling is ours.
+
+---
+
 ## 2026-06-04 — Exp 1 Smoke Test (20-iter γ Evolution, CPU)
 
 20 LLM-guided evolution iterations on fft_1. Best candidate: seed linear-decay schedule (norm_hpwl = 2.254, HPWL = 4.92M at 50 iters). No mutation beat the seed.
 
-**Conclusion**: pipeline validated end-to-end. 50-iter CPU eval too noisy to drive selection (σ ≈ 1% = magnitude of any schedule improvement). Interesting LLM mutations generated (cosine-annealing, overflow-adaptive blend, HPWL-trend detection) — save as warm starts for GPU runs. Real evolution requires convergent GPU placement (~300+ iter eval).
+**Conclusion**: pipeline plumbing validated (LLM call → function extraction → evaluation → TSV logging). γ hook not yet wired into DREAMPlace (see architectural gap above), so all candidates ran vanilla DREAMPlace. Score variance is numerical noise, not schedule signal. Real Exp 1 results require fixing the NesterovPlace hook first.
 
 **Known issue**: fitness scores inflated 2× vs Exp 0 because eval runs only 50 iters (HPWL ~4.9M vs converged ~2.2M). Normalisation is internally consistent but cross-experiment comparison requires matching iteration counts.
 
