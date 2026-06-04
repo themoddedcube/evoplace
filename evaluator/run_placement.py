@@ -194,12 +194,16 @@ def run_placement_stub(
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    return PlacementResult(
+    result = PlacementResult(
         metrics=metrics,
         runtime_s=float(runtime),
         divergence_events=divergence_events,
         converged=overflow < 0.1,
     )
+    import json as _json
+    with open(output_dir / "result.json", "w") as _f:
+        _json.dump(result.to_dict(), _f, indent=2)
+    return result
 
 
 def run_placement(

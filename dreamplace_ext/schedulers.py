@@ -55,7 +55,8 @@ def gamma_overflow_adaptive(
     """
     gamma_max = 8.0
     gamma_min = 0.5
-    # Scale inversely with overflow: high overflow → low gamma → accurate WL gradients
+    # Scale with overflow: high overflow (cells clustered) → high gamma (smooth gradients)
+    # low overflow (cells spread) → low gamma (accurate WL signal for fine-tuning)
     overflow_clamped = max(0.05, min(1.0, overflow))
     t = iteration / max(total_iterations, 1)
     base = gamma_min + (gamma_max - gamma_min) * (1 - t)
