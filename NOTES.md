@@ -578,3 +578,35 @@ Corrected findings (unchanged measurements, corrected provenance):
 - Rows 4-6 function as negative controls: protocol correctly measures
   known-bad schedules as 2-8% worse with tight CIs.
 Boundary conclusion unchanged: best real evolved-schedule gain ≈ +0.3%.
+
+## 2026-06-05 — Exp 2 pre-evolution FINDING: unconditional λ ramp beats default
+
+Writing the Exp 2 seed exposed an API constraint: the λ hook receives
+(iteration, overflow, overflow_history, gradient_norm, current_lambda) but
+NOT delta_hpwl/ref_hpwl, so DREAMPlace's default density-weight update
+cannot be reproduced exactly. The seed approximates the default's
+HPWL-improving branch applied UNCONDITIONALLY:
+    λ_{k+1} = λ_k · 1.05 · max(0.9999^k, 0.98)
+i.e. the default minus its guard branch (which shrinks the multiplier when
+HPWL worsens between evaluations).
+
+Sanity gate flagged non-parity at 7σ (0.9896 vs expected 1.0±0.01). Paired
+multi-seed verification (5 seeds × fft_1/fft_2, identical final overflow
+both sides, converged flags matched per design):
+
+  fft_1: ratios 0.9864–0.9902 (5/5 better), ≈ −1.0%
+  fft_2: ratios 0.9026–0.9212 (5/5 better), ≈ −8.7% (!)
+  pooled mean 0.9511 ± 0.0128 SEM
+
+INTERPRETATION (pending robustness check on matrix_mult_1/des_perf_1):
+DREAMPlace's HPWL-feedback guard in update_density_weight appears to
+actively hurt these std-cell designs — slowing the λ ramp mid-flight takes
+longer trajectories into worse minima. The unconditional ramp reaches the
+same density quality (same overflow) at substantially lower wirelength.
+Effect is design-heterogeneous (1% vs 9%) — classic in this field; do not
+extrapolate beyond measured designs.
+
+Provenance note: this is NOT an evolved result — it is an ablation of the
+default's guard branch, found accidentally via the hook-API constraint and
+caught by the sanity gate. The protocol (gate → 7σ flag → paired
+verification) worked exactly as designed.
