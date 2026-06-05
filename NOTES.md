@@ -420,3 +420,35 @@ one sample.
 4. Medium-term fix is multi-seed fitness *inside* the evolution loop (the
    thing this 128 GB box was bought for) — score = mean over 3-5 seeds,
    which drops the noise floor to ~0.07% and makes 0.2% effects climbable.
+
+## 2026-06-05 — Related Work: yaoxufeng/EvoPlace (arXiv 2504.17801) — NAME COLLISION
+
+User found github.com/yaoxufeng/EvoPlace — "Evolution of Optimization
+Algorithms for Global Placement via LLMs". Same name, same base placer
+(DREAMPlace 4.1), same core idea. MUST cite; likely must rename our project
+for the paper (theirs appears to predate us publicly).
+
+What they evolve: initialization / preconditioner / optimizer (C++ level).
+NOT γ/λ schedules — our Exp 1/2 territory is untouched. Their headline:
+case-by-case 5.05% (MMS) / 5.29% (ISPD2005) / 8.30% (ISPD2019) HPWL
+reduction; initialization contributes the most (up to 17.7% adaptec3).
+
+Implications for us:
+1. **Exp 3 (GNN warm-init) gains priority** — independent evidence that
+   init is the highest-yield component.
+2. **Their scaling law**: HPWL gain vs #generated candidates is
+   LOGARITHMIC; breadth (≥1000 offline candidates + diversity-aware
+   selection by performance + negative cosine similarity, then UCB +
+   self-reflection evolution) beats long hill-climbs. Our 200-iter
+   single-lineage run is the opposite allocation — consider a
+   generate-many/select-diverse stage for Exp 2.
+3. **They are single-seed** and admit ~1% cross-environment noise — the
+   same trap we're guarding against. Our paired multi-seed protocol is a
+   methodological differentiator worth a paragraph in the paper.
+4. Benchmark context: their gains are on macro-heavy ISPD2005/MMS with more
+   headroom; ISPD2015 fft_* are small std-cell designs. Our ~0.4% is not
+   directly comparable. Consider adding ISPD2005/MMS (bookshelf, supported
+   by DREAMPlace) for an apples-to-apples table.
+5. Their generalization collapse (5.05% → 0.51% when one algorithm must
+   serve all cases) is the same Klein-4 overfit failure mode we documented —
+   multi-design fitness stays mandatory.
