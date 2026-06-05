@@ -5,50 +5,45 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    LOWER_PCOF = 0.95
+    """Overflow-adaptive density-weight schedule with stability guards."""
     UPPER_PCOF = 1.05
+    LOWER_PCOF = 1.01
 
-    # Base multiplicative growth that anneals as iterations progress,
-    # mirroring DREAMPlace's density-weight subgradient ascent.
-    decay = max(0.9999 ** float(iteration), 0.98)
+    # Base multiplicative growth (DREAMPlace-style), annealed with iteration.
+    base = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Overflow-adaptive scaling: push lambda up hard while many bins are
-    # over-dense, ease off as the layout legalizes so we don't overshoot.
-    of = overflow if overflow == overflow else 1.0  # guard against NaN
+    # Overflow-adaptive scaling: push harder while bins are congested,
+    # ease off as the placement spreads so we don't overshoot and diverge.
+    of = overflow if overflow == overflow else 1.0          # NaN guard
     of = min(max(of, 0.0), 1.0)
 
-    # Trend from recent overflow history: if overflow is still dropping fast,
-    # keep momentum; if it has stalled high, increase pressure.
-    trend = 0.0
-    if overflow_history is not None and len(overflow_history) >= 2:
-        prev = overflow_history[-2]
-        cur = overflow_history[-1]
-        if prev == prev and cur == cur:
-            trend = prev - cur  # positive => improving
+    # Estimate spreading progress from recent overflow trend.
+    if overflow_history and len(overflow_history) >= 2:
+        prev = overflow_history[-1]
+        delta = prev - of                                    # >0 means improving
+    else:
+        delta = 0.0
 
-    # Map overflow to a growth factor in roughly [LOWER_PCOF, UPPER_PCOF].
-    # High overflow -> near UPPER (grow), low overflow -> ~1.0 (hold).
-    mu = 1.0 + (UPPER_PCOF - 1.0) * decay * of
+    # Map overflow into [LOWER_PCOF, UPPER_PCOF]: high overflow -> stronger ramp.
+    mu = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * of
+    mu = min(mu, base)
 
-    # If overflow stalls at a high level, add a small extra nudge.
-    if of > 0.5 and trend <= 1e-4:
-        mu += 0.01 * decay
+    # If overflow stalls (barely improving) while still high, nudge harder.
+    if of > 0.10 and abs(delta) < 1e-4:
+        mu *= 1.02
 
-    # If overflow is low and improving, gently relax to refine wirelength.
-    if of < 0.1 and trend >= 0.0:
-        mu = min(mu, 1.0 + 0.005 * decay)
-
-    # Gradient-norm safeguard: damp growth if gradients blow up to avoid
-    # the divergence that produced inf HPWL.
+    # If gradients blow up, damp the update to preserve stability.
     if gradient_norm == gradient_norm and gradient_norm > 0.0:
-        if gradient_norm > 1e4:
-            mu = min(mu, 1.0 + 0.5 * (UPPER_PCOF - 1.0))
+        if gradient_norm > 1e3:
+            mu = min(mu, 1.0 + (mu - 1.0) * 0.5)
 
-    mu = min(max(mu, LOWER_PCOF), UPPER_PCOF)
+    # Near convergence (low overflow): hold lambda steady for fine-tuning.
+    if of < 0.05:
+        mu = 1.0 + (mu - 1.0) * 0.25
 
     new_lambda = current_lambda * mu
 
-    # Keep within the required, numerically safe range.
-    if not (new_lambda == new_lambda):  # NaN fallback
-        new_lambda = current_lambda
+    # Hard clamp to the legal range.
+    if new_lambda != new_lambda:                             # NaN -> reset low
+        new_lambda = 0.01
     return float(min(max(new_lambda, 0.01), 50.0))

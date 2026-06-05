@@ -5,38 +5,40 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    GAMMA_HIGH = 8.0      # smooth, stable gradients while cells are clustered
-    GAMMA_LOW = 0.5       # sharp, accurate HPWL for fine-tuning
-    LO, HI = 0.01, 50.0
+    UPPER_PCOF = 1.05
+    LOWER_PCOF = 0.95
 
-    # Sanitize inputs (guard against nan/inf that produced the divergence).
-    of = overflow
-    if of != of or of in (float("inf"), float("-inf")):
-        of = 1.0
-    of = min(1.0, max(0.0, of))
+    # DREAMPlace-style decaying growth cap: aggressive early, gentler later.
+    base = max(0.9999 ** float(iteration), 0.98)
 
-    gn = gradient_norm
-    if gn != gn or gn in (float("inf"), float("-inf")):
-        gn = 0.0
+    of = overflow if overflow == overflow else 1.0  # guard NaN
+    of = max(0.0, min(1.0, of))
 
-    # Overflow-adaptive core: log-linear map so gamma tracks spreading progress.
-    # overflow ~1.0 (start) -> GAMMA_HIGH ; overflow ~0.0 (spread) -> GAMMA_LOW.
-    gamma = GAMMA_LOW * (GAMMA_HIGH / GAMMA_LOW) ** of
-
-    # Iteration floor: enforce monotone-ish annealing so late iters stay sharp
-    # even if overflow plateaus, preventing endless high-gamma stalling.
-    anneal = GAMMA_HIGH * (0.985 ** float(max(0, iteration)))
-    gamma = min(gamma, max(GAMMA_LOW, anneal))
-
-    # Stability guard: if overflow is rising (placement un-spreading) or
-    # gradients spike, back off toward smoother, safer gradients.
+    # Overflow trend: are we still spreading, or starting to diverge?
     if overflow_history and len(overflow_history) >= 2:
-        prev = overflow_history[-2]
-        if prev == prev and of > prev + 0.02:
-            gamma = min(GAMMA_HIGH, gamma * 1.5)
+        recent = float(overflow_history[-1]) - float(overflow_history[-2])
+    else:
+        recent = 0.0
 
-    # Damp against the previous value to avoid oscillation/divergence.
-    if current_lambda == current_lambda and 0.0 < current_lambda < float("inf"):
-        gamma = 0.7 * gamma + 0.3 * min(HI, max(LO, current_lambda))
+    target = 0.10
+    if of > target:
+        # Cells still overlapping: grow lambda, harder the further from target,
+        # so density penalty clusters/legalizes before HPWL fine-tuning.
+        mu = UPPER_PCOF * base * (1.0 + 0.5 * (of - target))
+    else:
+        # Near legal: ease off (mu <= 1) to let HPWL gradients refine placement.
+        mu = max(LOWER_PCOF, 1.0 - 0.5 * (target - of))
 
-    return float(min(HI, max(LO, gamma)))
+    # Divergence guard: if overflow is climbing, stop inflating lambda.
+    if recent > 0.02:
+        mu = min(mu, 1.0)
+
+    # Exploding gradients => damp growth to avoid runaway lambda (the inf case).
+    if gradient_norm == gradient_norm and gradient_norm > 0.0 and current_lambda > 0.0:
+        if gradient_norm * current_lambda > 1e3:
+            mu = min(mu, 1.0)
+
+    new_lambda = current_lambda * mu
+    if new_lambda != new_lambda:  # NaN -> reset low
+        new_lambda = 0.01
+    return max(0.01, min(50.0, new_lambda))

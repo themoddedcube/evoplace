@@ -5,53 +5,45 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    # Sanitize inputs to avoid inf/nan propagation that blows the schedule up.
-    def _finite(x, default):
-        try:
-            x = float(x)
-        except (TypeError, ValueError):
-            return default
-        if x != x or x in (float("inf"), float("-inf")):
-            return default
-        return x
-
-    cur = _finite(current_lambda, 1.0)
-    ovf = _finite(overflow, 1.0)
-    gnorm = _finite(gradient_norm, 1.0)
-    if cur <= 0.0:
-        cur = 0.01
-
-    # Base geometric growth on the density weight (DREAMPlace-style increasing lambda).
-    # Slightly stronger than baseline early, decaying toward a gentle floor late.
     UPPER_PCOF = 1.05
     LOWER_PCOF = 0.95
+
+    # Baseline DREAMPlace-style subgradient step: aggressive early, decaying.
     base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Overflow-adaptive term: when overflow is high, cells are still poorly spread,
-    # so push the density weight harder; when overflow is low, ease off so HPWL
-    # (wirelength) can be fine-tuned without over-spreading.
-    ovf = min(max(ovf, 0.0), 1.0)
-    overflow_gain = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * ovf  # in [0.95, 1.05]
+    # Overflow trend from history (positive delta => density is improving).
+    delta = 0.0
+    if overflow_history:
+        n = len(overflow_history)
+        if n >= 4:
+            # Short-window slope: average of recent improvements, robust to noise.
+            recent = overflow_history[-4:]
+            delta = (recent[0] - recent[-1]) / 3.0
+        elif n >= 2:
+            delta = overflow_history[-2] - overflow
 
-    # Stagnation detection: if overflow has barely moved over recent history,
-    # give an extra nudge to escape the plateau.
-    stagnation = 1.0
-    if isinstance(overflow_history, (list, tuple)) and len(overflow_history) >= 4:
-        recent = [_finite(v, ovf) for v in overflow_history[-4:]]
-        progress = recent[0] - recent[-1]
-        if progress < 1e-3:
-            stagnation = 1.02
-
-    # Gradient damping: if gradients are exploding, grow more conservatively.
+    # Gradient-norm guard: when gradients explode, damp lambda growth to stay stable.
     grad_damp = 1.0
-    if gnorm > 0.0 and gnorm > 1e3:
-        grad_damp = 0.98
+    if gradient_norm is not None and gradient_norm > 0.0:
+        if gradient_norm > 5.0:
+            grad_damp = 0.97
+        elif gradient_norm < 0.5:
+            grad_damp = 1.02  # gradients quiet -> safe to push density harder
 
-    mu = base_mu * overflow_gain * stagnation * grad_damp
+    if overflow > 0.10:
+        # Far from legal: keep spreading cells. If progress stalls, push harder.
+        if delta < 0.0005:
+            mu = base_mu * 1.04   # stalled / worsening -> escalate density penalty
+        else:
+            mu = base_mu          # healthy descent -> nominal escalation
+    elif overflow > 0.05:
+        # Transition band: ramp down growth so HPWL approximation can sharpen.
+        mu = base_mu * 0.98
+    else:
+        # Near-legal: ease the penalty so cells settle and fine HPWL dominates.
+        mu = max(LOWER_PCOF, base_mu * 0.95)
 
-    next_lambda = cur * mu
-    if next_lambda != next_lambda or next_lambda in (float("inf"), float("-inf")):
-        next_lambda = cur
+    mu *= grad_damp
 
-    # Hard clamp to the allowed range (prevents the inf blow-up seen in baseline).
-    return float(min(max(next_lambda, 0.01), 50.0))
+    new_lambda = current_lambda * mu
+    return float(min(max(new_lambda, 0.01), 50.0))

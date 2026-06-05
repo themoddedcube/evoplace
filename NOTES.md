@@ -664,3 +664,19 @@ Operational rules added to the discipline list:
    elimination observed), not just in a fresh-process unit test.
 3. One campaign per log file / output dir, ever. Truncating a log a live
    process holds open does not stop it writing.
+
+## 2026-06-05 — Exp 2 FINAL: gated λ evolution finds nothing beyond the seed
+
+Clean gated run completed 200/200. Outcome: 150/200 candidates scored -inf
+(cascade + overflow gate), 49 survivors all WORSE than the seed
+(1.09-3.23), seed (0.9890 on fft_1) remains best — best_program.py is the
+unmodified seed. Contrast with the contaminated ungated run, which kept
+"improving" via under-spread placements: with legality enforced, λ-space
+beyond the unconditional ramp offered the search nothing but hacks.
+
+Verdict: Exp 2's contribution is the guard-branch ablation finding (seed,
++1 to +8.7% vs default at matched overflow, 14/14 paired seeds, 4 designs);
+LLM evolution on top of it: zero. Combined campaign conclusion: schedule
+*search* is dead in both γ and λ spaces; schedule *auditing* produced the
+only real win. No multi-seed re-rank needed (no candidate within 60σ of
+the seed).

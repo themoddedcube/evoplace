@@ -5,37 +5,38 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    """Overflow-adaptive density-penalty multiplier with clamped, NaN-safe output."""
     UPPER_PCOF = 1.05
-    LOWER_PCOF = 1.00
+    LOWER_PCOF = 0.95
 
-    # DREAMPlace-style geometric ramp, gently annealed with iteration so the
-    # penalty grows fast early (cells still spreading) and tapers later.
+    ovf = float(overflow)
+    if ovf != ovf:                      # NaN guard
+        ovf = 1.0
+    ovf = min(max(ovf, 0.0), 1.0)
+
+    # Base annealed multiplier: aggressive early, gentle late (DREAMPlace style)
     base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Sanitize and bound overflow to [0, 1].
-    of = overflow if overflow == overflow else 1.0  # NaN guard
-    of = min(max(of, 0.0), 1.0)
-
-    # Overflow-adaptive scaling: push the penalty harder while bins are
-    # congested, ease off as the placement legalizes to avoid over-penalizing
-    # an already-spread layout (the regime where low overflow needs accuracy).
-    mu = LOWER_PCOF + (base_mu - LOWER_PCOF) * (0.3 + 0.7 * of)
-
-    # Trend from history: if overflow stalls or worsens, add a little pressure.
+    # Overflow-adaptive correction from recent trend:
+    # overflow stalling -> push lambda harder; dropping fast -> ease off.
+    mu = base_mu
     if overflow_history and len(overflow_history) >= 2:
-        prev = overflow_history[-2]
-        cur = overflow_history[-1]
-        if prev == prev and cur == cur and cur >= prev:
-            mu *= 1.0 + min(cur - prev, 0.05)
+        prev = float(overflow_history[-1])
+        if prev == prev:                # not NaN
+            ref = max(prev, 1e-3)
+            rate = (prev - ovf) / ref   # >0 means overflow improving
+            mu = base_mu * (1.0 - 0.5 * rate)
 
-    # Damp growth when gradients explode (noisy late-stage signal).
-    if gradient_norm == gradient_norm and gradient_norm > 1e3:
-        mu = min(mu, 1.01)
+    # Damp growth as placement converges (low overflow) to avoid over-penalizing.
+    if ovf < 0.10:
+        mu = 1.0 + (mu - 1.0) * (ovf / 0.10)
 
-    next_lambda = current_lambda * mu
+    # Stabilize against exploding/vanishing gradients.
+    if gradient_norm != gradient_norm or gradient_norm == float("inf"):
+        mu = 1.0
 
-    # NaN guard then hard clamp to the required output range.
-    if not (next_lambda == next_lambda):
-        next_lambda = current_lambda
-    return float(min(max(next_lambda, 0.01), 50.0))
+    mu = min(max(mu, LOWER_PCOF), UPPER_PCOF)
+
+    new_lambda = current_lambda * mu
+    if new_lambda != new_lambda:        # NaN guard on result
+        new_lambda = current_lambda
+    return float(min(max(new_lambda, 0.01), 50.0))

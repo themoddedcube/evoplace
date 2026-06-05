@@ -8,43 +8,46 @@ def lambda_schedule(
     UPPER_PCOF = 1.05
     LOWER_PCOF = 0.95
 
-    # NaN/inf guards on inputs
-    cl = current_lambda
-    if cl != cl or cl in (float("inf"), float("-inf")):
-        cl = 1.0
+    # Sanitize inputs (guard against NaN/inf leaking into the multiplier).
     of = overflow
-    if of != of:
+    if of != of or of > 1e30 or of < -1e30:
         of = 1.0
     of = min(max(of, 0.0), 1.0)
 
-    # DREAMPlace-style decaying growth envelope: strong push early, gentle late
-    base = max(0.9999 ** float(iteration), 0.98)
+    cur = current_lambda
+    if cur != cur or cur > 1e30 or cur < -1e30 or cur <= 0.0:
+        cur = 1.0
 
-    # Overflow-adaptive growth: push lambda harder while bins are congested,
-    # relax toward 1.0 as the placement spreads (low overflow -> fine-tuning).
-    pcof = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * of
+    # Base multiplicative growth that decays toward ~1 as placement proceeds:
+    # ramp the density penalty hard early, then stabilize for fine-tuning.
+    base = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Overflow trend: if congestion is already falling, avoid overshoot.
-    if overflow_history and len(overflow_history) >= 2:
-        h1 = overflow_history[-1]
-        h2 = overflow_history[-2]
-        if h1 == h1 and h2 == h2:
-            trend = h1 - h2
-            if trend < 0.0:
-                pcof = min(pcof, 1.0 + 0.5 * (UPPER_PCOF - 1.0))
-            elif trend > 0.02:
-                pcof = min(UPPER_PCOF, pcof + 0.5 * (UPPER_PCOF - 1.0))
+    # Overflow-adaptive pressure: many over-dense bins -> push lambda up
+    # faster; near-legal placement -> ease off so HPWL can settle.
+    mu = base * (1.0 + 0.5 * (of - 0.10))
 
-    # Gradient safeguard: damp growth when gradients explode (stability).
+    # Overflow trend: if it is stalling or rising, apply stronger pressure.
+    if len(overflow_history) >= 2:
+        prev = overflow_history[-2]
+        last = overflow_history[-1]
+        if prev == prev and last == last:
+            delta = last - prev
+            if delta > 1e-4:
+                mu *= 1.04
+            elif delta < -5e-3:
+                mu *= 0.98  # legalizing quickly -> relax growth
+
+    # Gradient safeguard: damp growth if gradients explode (numerical safety).
     gn = gradient_norm
-    if gn == gn and gn > 1.0:
-        damp = 1.0 / (1.0 + (gn - 1.0) * 0.01)
-        pcof = 1.0 + (pcof - 1.0) * damp
+    if gn == gn and gn > 1e3:
+        mu = min(mu, 1.0)
 
-    mu = pcof * base
-    new_lambda = cl * mu
+    # Keep the per-step multiplier in a sane band.
+    mu = min(max(mu, LOWER_PCOF), 1.10)
 
-    if new_lambda != new_lambda or new_lambda in (float("inf"), float("-inf")):
-        new_lambda = cl
+    new_lambda = cur * mu
 
-    return float(min(max(new_lambda, 0.01), 50.0))
+    # Robust final clamp to the required output range; handle NaN/inf.
+    if new_lambda != new_lambda or new_lambda > 1e30 or new_lambda < -1e30:
+        new_lambda = cur
+    return min(max(new_lambda, 0.01), 50.0)

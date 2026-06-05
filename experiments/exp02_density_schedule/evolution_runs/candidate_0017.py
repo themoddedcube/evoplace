@@ -1,63 +1,43 @@
 def lambda_schedule(
-    iteration: int,            
-    overflow: float,           
-    overflow_history: list,    
-    gradient_norm: float,      
-    current_lambda: float,     
+    iteration: int,
+    overflow: float,
+    overflow_history: list,
+    gradient_norm: float,
+    current_lambda: float,
 ) -> float:
-    INF = float("inf")
+    UPPER_PCOF = 1.05
+    LOWER_PCOF = 0.95
 
-    def clean(x, d):
-        try:
-            x = float(x)
-        except (TypeError, ValueError):
-            return d
-        if x != x or x == INF or x == -INF:
-            return d
-        return x
+    # Base RePlAce-style geometric ramp: aggressive early, gentle late.
+    decay = max(0.9999 ** float(iteration), 0.98)
 
-    # --- sanitize inputs ---
-    of = min(max(clean(overflow, 1.0), 0.0), 1.0)
-    lam = clean(current_lambda, 1.0)
-    if lam <= 1e-8:
-        lam = 1e-3
-    gnorm = max(clean(gradient_norm, 0.0), 0.0)
-    it = int(iteration) if iteration == iteration else 0
-
-    # --- overflow trend (negative = spreading/improving) ---
-    hist = [min(max(clean(h, of), 0.0), 1.0) for h in (overflow_history or [])]
-    if len(hist) >= 4:
-        recent = sum(hist[-3:]) / 3.0
-        older = sum(hist[-6:-3]) / max(len(hist[-6:-3]), 1)
-        trend = recent - older
+    # Overflow trend from history: are we still spreading or stalling?
+    if overflow_history:
+        prev = overflow_history[-1]
+        # average a short tail for a less noisy slope estimate
+        tail = overflow_history[-3:]
+        avg_prev = sum(tail) / len(tail)
+        delta = overflow - avg_prev          # <0 means overflow improving
     else:
-        trend = 0.0
+        prev = overflow
+        delta = 0.0
 
-    # --- schedule parameters ---
-    TARGET = 0.10            # ePlace-style stopping overflow
-    UPPER, LOWER = 1.05, 0.96
+    # Adaptive multiplier: push lambda harder when overflow is high and
+    # not improving; ease off as it stalls or starts rising (overshoot).
+    # delta normalized by a reference step (~0.02 overflow change).
+    ref = 0.02
+    coef = UPPER_PCOF - (UPPER_PCOF - LOWER_PCOF) * max(0.0, min(1.0, delta / ref + 0.5))
 
-    # base multiplier: ramp weight up in proportion to overflow excess
-    excess = max(of - TARGET, 0.0) / (1.0 - TARGET)   # in [0, 1]
-    mu = 1.0 + (UPPER - 1.0) * excess
+    # Scale the push by remaining overflow: little overflow -> small change.
+    overflow_factor = max(0.1, min(1.0, overflow / 0.10))
+    mu = 1.0 + (coef * decay - 1.0) * overflow_factor
 
-    if of > TARGET:
-        # still too dense: if spreading has stalled, push harder
-        if trend >= 0.0:
-            mu *= 1.01
-    else:
-        # overflow met: relax weight so HPWL term can fine-tune
-        mu = LOWER + (1.0 - LOWER) * (of / TARGET)
+    # Gradient-norm guard: if gradients explode, damp the increase to stay stable.
+    if gradient_norm > 0.0:
+        if gradient_norm > 1e3:
+            mu = min(mu, 1.02)
 
-    # gradient safeguard: damp growth when gradients are exploding
-    if gnorm > 1e3:
-        mu = min(mu, 1.0 + (mu - 1.0) * (1e3 / gnorm))
+    new_lambda = current_lambda * mu
 
-    # mild warmup so early iterations don't over-accelerate
-    if it < 10:
-        mu = 1.0 + (mu - 1.0) * (0.5 + 0.05 * it)
-
-    mu = min(max(mu, LOWER), UPPER)
-
-    new_lam = lam * mu
-    return float(min(max(new_lam, 0.01), 50.0))
+    # Hard clamp to the required range.
+    return float(max(0.01, min(50.0, new_lambda)))

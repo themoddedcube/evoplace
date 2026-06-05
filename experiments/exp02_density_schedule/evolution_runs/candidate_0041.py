@@ -1,35 +1,52 @@
 def lambda_schedule(
-    iteration: int,            
-    overflow: float,           
-    overflow_history: list,    
-    gradient_norm: float,      
-    current_lambda: float,     
+    iteration: int,
+    overflow: float,
+    overflow_history: list,
+    gradient_norm: float,
+    current_lambda: float,
 ) -> float:
-    GAMMA_HIGH = 8.0
-    GAMMA_LOW = 0.5
+    """Overflow-adaptive geometric growth of the density weight with
+    stagnation-aware boosting and hard clamping to keep placement stable."""
+    # --- Base geometric growth (DREAMPlace-style), but gentler than 1.05 ---
+    # A too-aggressive multiplier blows the density force up and HPWL diverges
+    # (-> inf). Decay the multiplier toward 1.0 as iterations progress so the
+    # late-stage fine-tuning is not destabilized.
+    base_mult = 1.03 * max(0.9999 ** float(iteration), 0.985)
 
-    # Smooth overflow with recent history to damp gradient noise.
-    if overflow_history:
-        recent = overflow_history[-3:]
-        ov = 0.6 * (sum(recent) / len(recent)) + 0.4 * overflow
-    else:
-        ov = overflow
-    ov = min(max(ov, 0.0), 1.0)
+    # --- Overflow-adaptive scaling ---
+    # High overflow => cells still heavily overlapped => push density harder.
+    # Low overflow  => nearly legal => ease off so HPWL can settle.
+    of = overflow if overflow == overflow else 1.0  # NaN guard
+    of = min(max(of, 0.0), 1.0)
+    # Maps overflow in [0,1] to an extra multiplier in ~[0.97, 1.06].
+    overflow_factor = 0.97 + 0.09 * of
 
-    # Overflow-adaptive: cells clustered (high overflow) -> smooth high gamma;
-    # cells spread (low overflow) -> accurate low gamma. Log-uniform mapping.
-    gamma = GAMMA_LOW * (GAMMA_HIGH / GAMMA_LOW) ** ov
+    # --- Stagnation detection from history ---
+    # If overflow has stopped improving, give a mild extra push to escape the
+    # plateau; if it is dropping fast, relax to avoid overshoot.
+    stagnation_factor = 1.0
+    if overflow_history is not None and len(overflow_history) >= 4:
+        recent = overflow_history[-4:]
+        improvement = recent[0] - recent[-1]
+        if improvement < 1e-4:          # essentially stuck
+            stagnation_factor = 1.04
+        elif improvement > 0.05:        # improving quickly
+            stagnation_factor = 0.99
 
-    # Iteration floor: guarantee fine-tuning late even if overflow plateaus.
-    anneal = max(0.99 ** float(iteration), 0.2)
-    gamma = GAMMA_LOW + (gamma - GAMMA_LOW) * anneal
+    # --- Gradient-norm safeguard ---
+    # Exploding gradients are the usual cause of divergence; damp growth when
+    # the gradient norm is very large.
+    grad_factor = 1.0
+    if gradient_norm == gradient_norm and gradient_norm > 0.0:
+        if gradient_norm > 1e4:
+            grad_factor = 0.97
 
-    # If overflow is essentially resolved, push toward the accurate regime.
-    if ov < 0.08:
-        gamma = min(gamma, GAMMA_LOW + 0.5 * ov / 0.08)
+    mult = base_mult * overflow_factor * stagnation_factor * grad_factor
+    # Keep the per-step multiplier in a safe band.
+    mult = min(max(mult, 0.95), 1.08)
 
-    # Stabilize against exploding gradients by softening gamma slightly.
-    if gradient_norm > 0.0 and gradient_norm > 5.0:
-        gamma = gamma * 1.1
+    cur = current_lambda if current_lambda == current_lambda and current_lambda > 0.0 else 1.0
+    new_lambda = cur * mult
 
-    return float(min(max(gamma, 0.01), 50.0))
+    # --- Hard clamp to the required range ---
+    return float(min(max(new_lambda, 0.01), 50.0))

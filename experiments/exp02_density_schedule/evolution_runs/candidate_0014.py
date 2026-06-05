@@ -5,41 +5,44 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    UPPER_PCOF = 1.05
-    LOWER_PCOF = 1.00
+    # RePlAce/ePlace-style overflow-adaptive multiplicative penalty update.
+    # lambda grows while cells remain spread-out (high overflow), then the
+    # growth automatically tapers as overflow falls, letting the wirelength
+    # term dominate for fine-tuning. All branches stay numerically bounded.
 
-    # NaN/range guards on inputs
-    of = overflow if overflow == overflow else 1.0
+    UPPER_PCOF = 1.05      # max per-step growth
+    LOWER_PCOF = 0.95      # min per-step growth (mild decay when nearly legal)
+    OVF_TARGET = 0.10      # target overflow for convergence
+
+    of = overflow if overflow == overflow else 1.0  # guard NaN
     of = min(max(of, 0.0), 1.0)
-    gn = gradient_norm if gradient_norm == gradient_norm else 0.0
 
-    # Base multiplicative growth that anneals toward ~1.0 as iterations proceed.
-    base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
-
-    # Overflow trend over recent history (negative => cells are spreading well).
-    trend = 0.0
+    # Overflow trend: negative means we are improving (overflow dropping).
     if overflow_history and len(overflow_history) >= 2:
-        k = min(len(overflow_history), 4)
-        recent = overflow_history[-1]
-        past = overflow_history[-k]
-        if recent == recent and past == past:
-            trend = recent - past
+        prev = overflow_history[-2]
+        prev = min(max(prev if prev == prev else of, 0.0), 1.0)
+        delta = of - prev
+    else:
+        delta = 0.0
 
-    # Push lambda harder while bins stay congested and overflow stalls;
-    # ease the growth as the layout legalizes (overflow -> 0).
-    stall_boost = 1.02 if (trend >= -1e-3 and of > 0.10) else 1.0
+    # Base multiplier from how far overflow is above target.
+    # Far above target -> push lambda up; near/below target -> ease off.
+    gap = (of - OVF_TARGET) / max(1.0 - OVF_TARGET, 1e-6)
+    mu = 1.0 + 0.05 * gap                      # ~1.05 when full, ~0.995 when legal
 
-    # Blend toward UPPER_PCOF under high overflow, gentle growth under low overflow.
-    mu = (LOWER_PCOF + (base_mu - LOWER_PCOF) * (0.5 + 0.5 * of)) * stall_boost
+    # If overflow is rising (placement spreading out), accelerate penalty.
+    if delta > 0.0:
+        mu *= (1.0 + min(delta, 0.2))
 
-    # Dampen the update if gradients explode (prevents lambda blow-up -> inf HPWL).
-    if gn > 1e3:
-        mu = min(mu, 1.01)
-    mu = min(max(mu, 0.90), UPPER_PCOF * 1.05)
+    # Gentle annealing so we always converge in late iterations.
+    anneal = max(0.999 ** float(iteration), 0.97)
+    mu *= anneal
+
+    # Clamp the multiplier to a stable band.
+    mu = min(max(mu, LOWER_PCOF), UPPER_PCOF)
 
     new_lambda = current_lambda * mu
-
-    # Final NaN/inf guard + clamp to the allowed range.
-    if not (new_lambda == new_lambda):
+    if new_lambda != new_lambda:               # NaN guard
         new_lambda = current_lambda
+
     return float(min(max(new_lambda, 0.01), 50.0))

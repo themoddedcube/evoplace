@@ -5,38 +5,40 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    GAMMA_HIGH = 8.0
-    GAMMA_LOW = 0.5
+    UPPER_PCOF = 1.05
+    LOWER_PCOF = 0.95
 
-    # --- sanitize overflow (NaN/inf guard) and clamp to [0, 1] ---
-    of = overflow
-    if of != of or of in (float("inf"), float("-inf")):
-        of = 1.0
-    of = 1.0 if of > 1.0 else (0.0 if of < 0.0 else of)
+    # Base multiplier: anneal the growth rate so lambda ramps up
+    # aggressively early (push cells apart) and gently late (fine-tune HPWL).
+    base = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # smooth with recent overflow to suppress gradient noise
-    if overflow_history:
-        recent = [h for h in overflow_history[-5:] if h == h]
-        if recent:
-            of = 0.5 * of + 0.5 * (sum(recent) / len(recent))
+    # Overflow-adaptive correction: compare recent overflow trend.
+    if len(overflow_history) >= 2:
+        prev = overflow_history[-2]
+        cur = overflow_history[-1]
+        # Rate of overflow reduction (positive = improving spread).
+        delta = prev - cur
+        if prev > 1e-12:
+            rel = delta / prev
+        else:
+            rel = 0.0
 
-    # --- overflow-adaptive core (DREAMPlace-style) ---
-    # high overflow (cells spread/clustered early) -> high gamma -> smooth gradients
-    # low overflow (near-legal late)               -> low gamma  -> accurate HPWL
-    frac = (of - 0.1) / 0.9
-    frac = 1.0 if frac > 1.0 else (0.0 if frac < 0.0 else frac)
-    target = GAMMA_LOW * (10.0 ** (frac * 1.2))   # ~0.5 .. ~7.9
-
-    # --- iteration safety floor: force annealing even if overflow stalls ---
-    decay = 0.998 ** float(iteration)
-    target = GAMMA_LOW + (target - GAMMA_LOW) * decay
-
-    # --- damp transitions to avoid oscillation, but never trust inf state ---
-    cl = current_lambda
-    if cl == cl and 0.01 <= cl <= 50.0:
-        new_lambda = 0.6 * cl + 0.4 * target
+        if delta <= 0.0:
+            # Overflow stalled or grew: push density penalty harder.
+            mu = base * (1.0 + min(0.10, 0.5 * abs(rel) + 0.02))
+        else:
+            # Overflow shrinking: scale growth down as we converge,
+            # easing off near low overflow so gradients stay accurate.
+            ease = max(LOWER_PCOF, 1.0 - 0.8 * rel)
+            mu = base * ease
     else:
-        new_lambda = target
+        mu = base
+
+    # When overflow is already low, slow lambda growth to refine wirelength.
+    if overflow < 0.10:
+        mu = 1.0 + (mu - 1.0) * (overflow / 0.10)
+
+    new_lambda = current_lambda * mu
 
     if new_lambda < 0.01:
         new_lambda = 0.01

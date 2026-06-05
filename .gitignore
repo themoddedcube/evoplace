@@ -71,3 +71,4 @@ graphs/**/*.pdf
 
 # Full raw evolution/placement logs are too large to commit; keep filtered *.summary.log instead
 experiments/**/run.log
+experiments/*/spark_run.log

@@ -5,43 +5,38 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    """Overflow-adaptive density-weight schedule with bounded, stall-aware growth."""
-    # --- sanitize inputs ---
-    cl = current_lambda if (current_lambda is not None and current_lambda == current_lambda) else 1.0
-    cl = min(max(cl, 0.01), 50.0)
-    ov = overflow if (overflow is not None and overflow == overflow) else 1.0
-    ov = min(max(ov, 0.0), 1.0)
-    gn = gradient_norm if (gradient_norm is not None and gradient_norm == gradient_norm) else 1.0
+    """ Overflow-adaptive density-weight (lambda) multiplier with hard caps. """
+    # Sanitize inputs (the previous version diverged to inf because lambda grew
+    # unbounded and nothing guarded against runaway gradients).
+    of = overflow if overflow is not None else 1.0
+    if of != of:                      # NaN guard
+        of = 1.0
+    of = min(max(of, 0.0), 1.0)
 
-    UPPER_PCOF = 1.05
-    LOWER_PCOF = 1.001
+    gn = gradient_norm if (gradient_norm is not None and gradient_norm == gradient_norm) else 0.0
+    cl = current_lambda if (current_lambda is not None and current_lambda == current_lambda) else 0.01
 
-    # Base decay term (mirrors DREAMPlace), kept strictly bounded.
-    base = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
+    # Gentle geometric growth, scaled by how crowded the bins still are.
+    # When overflow is high -> push density weight up; as it legalizes
+    # (overflow -> 0) the multiplier eases toward 1 so HPWL can settle.
+    base = 1.04
+    mu = 1.0 + (base - 1.0) * (of ** 0.5)
 
-    # Overflow-adaptive multiplier: push density penalty hard while spread is
-    # poor (high overflow), ease off as the layout legalizes (low overflow).
-    # Maps overflow in [0,1] -> growth factor in [LOWER_PCOF, UPPER_PCOF].
-    target = 0.10  # desired terminal overflow
-    drive = (ov - target) / (1.0 - target)
-    drive = min(max(drive, 0.0), 1.0)
-    mu = LOWER_PCOF + (base - LOWER_PCOF) * drive
+    # Stagnation kick: if overflow has plateaued while still crowded, nudge harder.
+    if len(overflow_history) >= 4:
+        recent = overflow_history[-4:]
+        if (max(recent) - min(recent)) < 1e-3 and of > 0.1:
+            mu *= 1.015
 
-    # Stall detection: if overflow has plateaued, nudge growth up to escape.
-    if overflow_history and len(overflow_history) >= 3:
-        recent = overflow_history[-3:]
-        if all(r == r for r in recent):
-            improvement = recent[0] - recent[-1]
-            if improvement < 1e-4 and ov > target:
-                mu *= 1.02
+    # Slow start so early, noisy iterations don't over-penalize density.
+    if iteration < 10:
+        mu = 1.0 + (mu - 1.0) * 0.5
 
-    # Damp growth when gradients explode to keep optimization stable.
-    if gn != gn or gn > 1e6:
-        mu = min(mu, 1.0)
+    # Gradient safety valve: hold lambda steady when gradients blow up.
+    if gn > 1e3:
+        mu = 1.0
 
-    next_lambda = cl * mu
+    new_lambda = cl * mu
 
-    # Hard clamp to the legal range.
-    if next_lambda != next_lambda:
-        next_lambda = cl
-    return min(max(next_lambda, 0.01), 50.0)
+    # Legal range, with a practical ceiling to prevent divergence.
+    return float(min(max(new_lambda, 0.01), 50.0))

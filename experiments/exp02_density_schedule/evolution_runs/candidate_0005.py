@@ -6,38 +6,38 @@ def lambda_schedule(
     current_lambda: float,
 ) -> float:
     UPPER_PCOF = 1.05
+    LOWER_PCOF = 1.001
 
-    # sanitize overflow (NaN -> assume worst-case under-spread)
-    of = overflow if overflow == overflow else 1.0
+    # Base annealed growth (DREAMPlace-style multiplicative ramp).
+    base = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
+
+    # Overflow-adaptive modulation: when many bins are over-dense we want the
+    # density penalty to climb faster to spread cells; once the layout is
+    # nearly legal (low overflow) we ease off so HPWL can fine-tune.
+    of = overflow if overflow == overflow else 1.0  # guard NaN
     of = min(max(of, 0.0), 1.0)
+    overflow_gain = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * (of ** 0.5)
 
-    # proven unconditional decay base (guard-branch ablation, generalizes)
-    decay = max(0.9999 ** float(iteration), 0.98)
+    # Stagnation detection: if overflow has barely moved over recent history
+    # the optimizer is stuck — nudge the multiplier up to break the plateau.
+    stagnation = 1.0
+    if overflow_history and len(overflow_history) >= 4:
+        window = overflow_history[-4:]
+        spread = max(window) - min(window)
+        if spread < 1e-3 and of > 0.1:
+            stagnation = 1.03
 
-    # While under-spread, push at full strength so cells reach low overflow
-    # (kept above the 0.12 overflow gate -> never the suppress-ramp exploit).
-    # Once spread, ease growth toward a mild relaxation so HPWL, not density,
-    # drives the late fine-tuning phase. Floor 0.97 only relaxes a settled
-    # placement; it does not de-spread.
-    if of > 0.15:
-        coef = UPPER_PCOF
-    else:
-        coef = 0.97 + (UPPER_PCOF - 0.97) * (of / 0.15)
+    # Gradient guard: very large gradients mean a noisy step, so temper growth
+    # to avoid overshooting the density penalty.
+    grad_damp = 1.0
+    if gradient_norm == gradient_norm and gradient_norm > 0.0:
+        if gradient_norm > 1e3:
+            grad_damp = 0.985
 
-    # Plateau breaker: if still under-spread but overflow has stalled, push
-    # harder to shorten the spreading phase (shorter trajectory -> lower HPWL,
-    # the documented mechanism behind the unconditional-ramp win).
-    hist = [h for h in overflow_history if h == h]
-    if of > 0.15 and len(hist) >= 4:
-        recent = sum(hist[-2:]) / 2.0
-        older = sum(hist[-4:-2]) / 2.0
-        if (older - recent) <= 1e-4:
-            coef *= 1.04
+    mu = base * overflow_gain * stagnation * grad_damp
 
-    # Numerical stability on exploding gradients.
-    if gradient_norm == gradient_norm and gradient_norm > 1e4:
-        coef *= 0.95 if gradient_norm > 5e4 else 0.98
+    # Keep growth bounded per step for stability.
+    mu = min(max(mu, 0.95), 1.10)
 
-    mu = coef * decay
     new_lambda = current_lambda * mu
     return float(min(max(new_lambda, 0.01), 50.0))

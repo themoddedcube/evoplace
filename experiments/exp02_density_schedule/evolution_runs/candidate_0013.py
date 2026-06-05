@@ -5,53 +5,40 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    """Overflow-adaptive density-weight schedule.
-
-    Grows lambda to spread cells while overflow is high, then anneals the
-    growth as the layout legalizes so HPWL can be fine-tuned without the
-    density penalty overshooting (which sends HPWL to inf).
-    """
     UPPER_PCOF = 1.05
-    LOWER_PCOF = 0.95
+    LOWER_PCOF = 1.001
 
-    # Classic DREAMPlace decaying ceiling on the per-step growth.
-    base = max(0.9999 ** float(iteration), 0.98)
+    # Base geometric ramp (DREAMPlace-style), gentler as iterations grow.
+    base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Overflow-adaptive factor: clamp overflow into [0, 1] defensively.
-    ovfl = overflow if overflow == overflow else 1.0  # NaN guard
-    ovfl = min(max(ovfl, 0.0), 1.0)
+    # Overflow-adaptive: push harder when cells are still spread (high overflow),
+    # ease off as overflow collapses so we don't over-penalize near convergence.
+    ov = overflow if overflow is not None else 1.0
+    ov = min(max(ov, 0.0), 1.0)
 
-    # Detect the trend in overflow to decide whether to push or ease off.
-    trend = 0.0
-    if overflow_history and len(overflow_history) >= 2:
-        recent = overflow_history[-min(5, len(overflow_history)):]
-        trend = recent[-1] - recent[0]
+    # Trend from history: if overflow is dropping fast, relax the ramp.
+    delta = 0.0
+    if overflow_history is not None and len(overflow_history) >= 2:
+        delta = overflow_history[-2] - overflow_history[-1]  # >0 means improving
 
-    # Map overflow to a multiplier in [LOWER_PCOF, UPPER_PCOF].
-    # High overflow -> push lambda up; low overflow -> let it settle.
-    mu = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * (ovfl ** 0.5)
-    mu *= base
+    if ov > 0.10:
+        # Still legalizing: scale ramp up with remaining overflow.
+        mu = LOWER_PCOF + (base_mu - LOWER_PCOF) * (0.5 + 0.5 * ov)
+        if delta > 0.02:
+            mu = 1.0 + (mu - 1.0) * 0.7  # improving fast, don't overshoot
+    else:
+        # Near-legal: fine-tune, keep lambda nearly flat to refine HPWL.
+        mu = 1.0 + (base_mu - 1.0) * (ov / 0.10) * 0.5
+        mu = max(mu, LOWER_PCOF)
 
-    # Stagnation / oscillation handling: if overflow stopped improving while
-    # still high, nudge harder; if it is rising (diverging), ease off.
-    if trend > 1e-4 and ovfl > 0.1:
-        mu *= 0.97          # overflow growing -> damp to avoid blow-up
-    elif abs(trend) < 1e-4 and ovfl > 0.1:
-        mu *= 1.02          # stuck but not legal -> escalate
-
-    # Gradient safety: very large gradients mean we are far from converged;
-    # avoid amplifying lambda into instability.
-    if gradient_norm == gradient_norm and gradient_norm > 0.0:
-        if gradient_norm > 1e3:
-            mu = min(mu, 1.0)
-
-    # Once nearly legal, freeze growth for accurate HPWL fine-tuning.
-    if ovfl < 0.07:
-        mu = min(mu, 1.0)
+    # Gradient guard: if gradients blow up, damp the multiplier.
+    if gradient_norm is not None and gradient_norm > 0.0:
+        if gradient_norm > 1e4:
+            mu = 1.0 + (mu - 1.0) * 0.5
 
     new_lambda = current_lambda * mu
 
-    # Hard clamp to the required range.
-    if new_lambda != new_lambda:  # NaN guard
+    # Hard clamp to the required range; guard against NaN/inf.
+    if not (new_lambda == new_lambda) or new_lambda == float("inf"):
         new_lambda = current_lambda
     return float(min(max(new_lambda, 0.01), 50.0))

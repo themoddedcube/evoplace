@@ -5,42 +5,57 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    """Overflow-adaptive gamma: smooth (high) while clustered, sharp (low) when spread."""
-    GAMMA_HI = 8.0   # smooth gradients early (cells clustered, overflow ~1)
-    GAMMA_LO = 0.5   # accurate HPWL late (cells spread, overflow ~0)
+    """Overflow-adaptive density-penalty (lambda) schedule.
 
-    # Sanitize overflow into [0, 1]; treat NaN/garbage as "early, fully clustered".
+    Grows lambda multiplicatively (DREAMPlace style) but modulates the
+    growth rate by overflow and overflow trend, and hard-clamps the
+    result to the legal range so the schedule never diverges.
+    """
+    LO, HI = 0.01, 50.0
+
+    # Defensive handling of degenerate inputs.
+    lam = current_lambda
+    if not (lam == lam) or lam <= 0.0:   # NaN or non-positive
+        lam = 1.0
+    lam = min(max(lam, LO), HI)
+
     ovf = overflow
-    if ovf != ovf or ovf < 0.0:
+    if not (ovf == ovf):                 # NaN guard
         ovf = 1.0
-    elif ovf > 1.0:
-        ovf = 1.0
+    ovf = min(max(ovf, 0.0), 1.0)
 
-    # Exponential interpolation in log-space: ovf=1 -> GAMMA_HI, ovf=0 -> GAMMA_LO.
-    # This is the canonical DREAMPlace-style overflow-driven gamma annealing.
-    gamma = GAMMA_LO * (GAMMA_HI / GAMMA_LO) ** ovf
+    # Base multiplicative growth, annealed slowly with iteration so the
+    # penalty ramps hard early (spread cells) and gently late (fine-tune).
+    anneal = max(0.9999 ** float(iteration), 0.95)
+    base_mu = 1.0 + 0.05 * anneal
 
-    # Stagnation detection: if overflow has plateaued, the coarse phase is done —
-    # sharpen the WA-WL approximation to push true HPWL down.
-    if overflow_history is not None and len(overflow_history) >= 5:
-        recent = overflow_history[-5:]
-        if (recent[0] - recent[-1]) < 1e-3:
-            gamma *= 0.8
+    # Overflow-adaptive boost: push harder while many bins are overfull,
+    # ease off as the layout legalizes so HPWL can settle.
+    #   ovf ~ 1.0 -> ~ +1.5x extra growth pressure
+    #   ovf ~ 0.0 -> mild decay toward fine-tuning
+    overflow_gain = 1.0 + 1.0 * (ovf - 0.10)
 
-    # Gradient safety: if gradients blow up, raise gamma to smooth and stabilize.
-    if gradient_norm == gradient_norm and gradient_norm > 1e3:
-        gamma *= 1.5
+    # Trend term: if overflow has stalled (not decreasing), increase the
+    # penalty more aggressively to break out of the plateau.
+    trend = 0.0
+    if overflow_history and len(overflow_history) >= 3:
+        recent = overflow_history[-3:]
+        delta = recent[0] - recent[-1]   # positive => overflow improving
+        if delta < 1e-4:                 # stalled or worsening
+            trend = 0.04
+        elif delta > 0.02:               # improving fast, relax growth
+            trend = -0.02
 
-    # Guaranteed fine-tuning floor in the late phase, independent of overflow noise.
-    if iteration > 500:
-        if gamma > 1.0:
-            gamma = 1.0
+    mu = base_mu * overflow_gain + trend
 
-    # Final clamp to the allowed range with NaN guard.
-    if gamma != gamma:
-        gamma = GAMMA_LO
-    if gamma < 0.01:
-        gamma = 0.01
-    elif gamma > 50.0:
-        gamma = 50.0
-    return float(gamma)
+    # Keep the per-step multiplier sane to avoid runaway / collapse.
+    mu = min(max(mu, 0.97), 1.20)
+
+    new_lambda = lam * mu
+
+    # When the placement is essentially legal, gently relax the penalty
+    # to let the wirelength term dominate the final iterations.
+    if ovf < 0.05:
+        new_lambda *= 0.99
+
+    return float(min(max(new_lambda, LO), HI))

@@ -5,58 +5,42 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    UPPER_PCOF = 1.05
-    LOWER_PCOF = 0.95
-
-    # sanitize overflow
-    of = overflow if overflow == overflow else 1.0
+    """Overflow-adaptive density-weight (lambda) growth with safety clamps."""
+    # Sanitize inputs.
+    of = overflow if (overflow is not None) else 1.0
     of = min(max(of, 0.0), 1.0)
+    cur = current_lambda if (current_lambda is not None and current_lambda > 0.0) else 0.01
+    grad = gradient_norm if (gradient_norm is not None and gradient_norm > 0.0) else 1.0
 
-    # base power decay (mirrors DREAMPlace iteration damping); floor a touch higher
-    base = max(0.99985 ** float(iteration), 0.985)
+    # Base multiplicative growth that decays with iteration: push density hard
+    # early (cells still spreading), gently anneal late for HPWL fine-tuning.
+    base = 1.045 * max(0.9999 ** float(iteration), 0.98)
 
-    # overflow-driven coefficient: high overflow -> push lambda up to spread cells
-    coef = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * (of ** 0.80)
+    # Overflow term: many over-dense bins -> larger step; near-legal -> ~1.0.
+    of_boost = 1.0 + 0.12 * of
 
-    # overflow-trend response: plateau/regression -> ramp harder; fast drop -> ease
-    hist = [h for h in overflow_history if h == h]
-    if len(hist) >= 4:
-        recent = 0.5 * (hist[-1] + hist[-2])
-        older = 0.5 * (hist[-3] + hist[-4])
-        delta = older - recent            # >0 == overflow improving
-        x = (delta - 1.0e-3) / 4.0e-3
-        sat = x / (1.0 + abs(x))          # in (-1, 1)
-        if sat <= 0.0:
-            coef *= 1.0 - 0.065 * sat     # plateau/regress -> increase
-        else:
-            coef *= 1.0 - 0.040 * sat     # improving -> mild ease
-    elif len(hist) >= 2:
-        delta = hist[-2] - hist[-1]
-        if delta <= 1e-4:
-            coef *= 1.03
+    # Trend term: if overflow stalls or rises, push harder; if it is falling
+    # fast the layout is legalizing, so ease the penalty growth.
+    trend = 0.0
+    if overflow_history and len(overflow_history) >= 2:
+        window = min(len(overflow_history), 5)
+        trend = overflow_history[-1] - overflow_history[-window]
+    trend = min(max(trend, -0.5), 0.5)
+    trend_boost = 1.0 + 0.20 * trend
 
-    # convergence regime: ease lambda as overflow becomes small (protect HPWL)
-    if of < 0.05:
-        coef *= 0.86 + 1.2 * of
-    elif of < 0.10:
-        coef *= 0.94
-    elif of < 0.18:
-        coef *= 0.98
+    # Gradient safety: damp lambda growth when gradients are exploding to
+    # avoid the divergence that produced inf HPWL.
+    if grad > 1e4:
+        grad_damp = 0.5
+    elif grad > 1e3:
+        grad_damp = 0.8
+    else:
+        grad_damp = 1.0
 
-    # gradient-norm safety damping (gentler than before to avoid over-suppression)
-    if gradient_norm > 0.0 and gradient_norm == gradient_norm:
-        if gradient_norm > 5e4:
-            coef *= 0.92
-        elif gradient_norm > 1e4:
-            coef *= 0.96
+    mu = base * of_boost * trend_boost * grad_damp
 
-    mu = coef * base
+    # Keep per-step multiplier conservative and monotone-ish.
+    mu = min(max(mu, 0.95), 1.12)
 
-    # multiplier caps: allow stronger early ramp, tighten window late
-    frac = min(max((float(iteration) - 200.0) / 300.0, 0.0), 1.0)
-    hi = 1.12 - 0.06 * frac
-    lo = 0.90 + 0.03 * frac
-    mu = min(max(mu, lo), hi)
-
-    new_lambda = current_lambda * mu
+    new_lambda = cur * mu
     return float(min(max(new_lambda, 0.01), 50.0))

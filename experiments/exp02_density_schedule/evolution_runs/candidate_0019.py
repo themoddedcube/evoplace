@@ -5,50 +5,40 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    """Overflow-adaptive density-penalty schedule with anti-divergence guards."""
-    # Base multiplicative growth (DREAMPlace UPPER_PCOF style), but capped.
+    """ ... """
     UPPER_PCOF = 1.05
     LOWER_PCOF = 0.95
 
-    # Decay the aggressiveness of growth as iterations progress so the
-    # penalty does not blow up late in the run.
-    decay = max(0.9999 ** float(iteration), 0.98)
+    # Base geometric growth, gently decaying as the run matures.
+    base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Overflow-adaptive term: push harder while cells are still spread
-    # (high overflow), ease off as the layout converges (low overflow).
-    of = overflow if overflow == overflow else 1.0  # guard NaN
-    of = min(max(of, 0.0), 1.0)
-
-    # Detect stalls / oscillation from recent overflow history.
-    stalled = False
-    if overflow_history is not None and len(overflow_history) >= 3:
-        recent = overflow_history[-3:]
-        # very small improvement over last few iters
-        if abs(recent[0] - recent[-1]) < 1e-4:
-            stalled = True
-
-    if of > 0.10:
-        # Still spreading: grow penalty, scaled by remaining overflow.
-        mu = 1.0 + (UPPER_PCOF - 1.0) * decay * (0.5 + 0.5 * of)
-    elif of > 0.05:
-        # Approaching target density: gentle growth.
-        mu = 1.0 + 0.5 * (UPPER_PCOF - 1.0) * decay
+    # Overflow-adaptive scaling: push density harder while many bins are
+    # over-full, ease off as overflow approaches the target so wirelength
+    # can settle without being crushed by the density penalty.
+    target_overflow = 0.10
+    if overflow > target_overflow:
+        of_factor = 1.0 + min((overflow - target_overflow) * 2.0, 0.5)
     else:
-        # Converged enough: relax penalty to refine wirelength.
-        mu = LOWER_PCOF + 0.05 * of / 0.05
+        of_factor = max(1.0 - (target_overflow - overflow) * 2.0, LOWER_PCOF)
 
-    # If progress stalled, give a small kick to escape the plateau.
-    if stalled and of > 0.06:
-        mu *= 1.02
+    # Plateau breaker: if overflow has stalled over the recent window, nudge
+    # the penalty up to escape the stall; if it is dropping fast, relax.
+    if len(overflow_history) >= 4:
+        recent = overflow_history[-4:]
+        delta = recent[0] - recent[-1]
+        if delta < 1e-4:
+            of_factor *= 1.05
+        elif delta > 0.05:
+            of_factor *= 0.97
 
-    # Guard against exploding / vanishing gradients.
-    gn = gradient_norm if gradient_norm == gradient_norm else 0.0
-    if gn > 1e3:
-        mu = min(mu, 1.005)
+    # Gradient guard: if gradients are exploding, slow the lambda ramp.
+    if gradient_norm > 0.0 and gradient_norm > 1e3:
+        of_factor *= 0.9
 
+    mu = base_mu * of_factor
     new_lambda = current_lambda * mu
 
-    # Hard clamp to the legal range.
-    if new_lambda != new_lambda:  # NaN guard
+    # Numerical safety: reject NaN/Inf, then clamp into the legal range.
+    if new_lambda != new_lambda or new_lambda in (float("inf"), float("-inf")):
         new_lambda = current_lambda
     return float(min(max(new_lambda, 0.01), 50.0))

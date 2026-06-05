@@ -8,59 +8,40 @@ def lambda_schedule(
     UPPER_PCOF = 1.05
     LOWER_PCOF = 0.95
 
-    # --- sanitize inputs ---
-    of = overflow if overflow == overflow else 1.0
+    # Base ePlace-style geometric growth, gently annealed over iterations.
+    base = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
+
+    # Overflow-adaptive growth rate: push hard while cells are still
+    # spread out (high overflow), ease off as the layout legalizes so we
+    # don't over-penalize density once cells are nearly placed.
+    of = overflow if overflow == overflow else 1.0      # guard NaN
     of = min(max(of, 0.0), 1.0)
 
-    hist = [h for h in overflow_history if h == h]
+    # Trend of overflow: if it is stalling/rising, accelerate the penalty;
+    # if it is dropping fast, slow down to let HPWL gradients dominate.
+    trend = 0.0
+    if overflow_history is not None and len(overflow_history) >= 3:
+        recent = overflow_history[-3:]
+        trend = recent[0] - recent[-1]                  # >0 means improving
 
-    # --- annealing envelope: density weight grows fast early, settles late ---
-    # slow geometric decay of the per-step growth ceiling so late iters fine-tune
-    base = max(0.99980 ** float(iteration), 0.975)
+    if of > 0.20:
+        # Far from convergence: density must keep tightening.
+        accel = 1.0 + 0.5 * (of - 0.20)
+        if trend <= 1e-4:                               # stalled -> push more
+            accel *= 1.10
+        mu = base * accel
+    else:
+        # Near convergence: anneal the penalty so wirelength gradients win,
+        # scaling growth down smoothly with remaining overflow.
+        mu = 1.0 + (base - 1.0) * (of / 0.20)
+        if trend > 1e-3:                                # improving nicely
+            mu = max(mu, LOWER_PCOF)
 
-    # --- overflow-magnitude term ---
-    # large overflow => spreading is far from done => grow lambda toward UPPER.
-    # small overflow => near-legal => damp growth so wirelength can relax.
-    coef = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * (of ** 0.80)
+    # Gradient-norm safety: if gradients explode, damp the multiplier.
+    if gradient_norm == gradient_norm and gradient_norm > 1e3:
+        mu = min(mu, 1.0 + (mu - 1.0) * (1e3 / gradient_norm))
 
-    # --- overflow-trend term (proxy for spreading progress) ---
-    # use a smoothed slope of recent overflow; stalled/rising overflow => push harder.
-    if len(hist) >= 4:
-        recent = 0.5 * (hist[-1] + hist[-2])
-        older = 0.5 * (hist[-3] + hist[-4])
-        delta = older - recent  # >0 means overflow is dropping (good)
-        if delta <= 0.0:
-            coef *= 1.07          # stalled or worsening: push spreading
-        elif delta <= 5e-5:
-            coef *= 1.05
-        elif delta <= 5e-4:
-            coef *= 1.02
-        elif delta > 1.5e-2:
-            coef *= 0.95          # dropping very fast: ease off, let WL settle
-        elif delta > 8e-3:
-            coef *= 0.975
-    elif len(hist) >= 2:
-        delta = hist[-2] - hist[-1]
-        if delta <= 1e-4:
-            coef *= 1.04
-
-    # --- late-stage damping by overflow level ---
-    if of < 0.05:
-        coef *= 0.85 + 1.2 * of   # strong damp once nearly legalizable
-    elif of < 0.10:
-        coef *= 0.945
-    elif of < 0.18:
-        coef *= 0.98
-
-    # --- gradient-norm safeguard: huge gradients => slow lambda growth ---
-    if gradient_norm > 0.0 and gradient_norm == gradient_norm:
-        if gradient_norm > 5e4:
-            coef *= 0.88
-        elif gradient_norm > 1e4:
-            coef *= 0.945
-
-    mu = coef * base
-    mu = min(max(mu, 0.88), 1.10)
+    mu = min(max(mu, LOWER_PCOF), UPPER_PCOF * 1.5)
 
     new_lambda = current_lambda * mu
     return float(min(max(new_lambda, 0.01), 50.0))

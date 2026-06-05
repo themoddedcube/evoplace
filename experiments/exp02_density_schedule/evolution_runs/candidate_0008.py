@@ -5,49 +5,41 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    GAMMA_HI = 8.0
-    GAMMA_LO = 0.5
+    """Overflow-adaptive density-penalty growth with hard clamping."""
+    UPPER_PCOF = 1.05
+    LOWER_PCOF = 1.001
 
-    # Overflow-driven target: high gamma while cells are still spread out
-    # (overflow high), low gamma once density has settled (overflow low).
-    ov = overflow if overflow is not None else 1.0
-    ov = min(max(ov, 0.0), 1.0)
+    # Sanitize inputs (NaN/inf guards; NaN != NaN).
+    of = overflow if overflow == overflow else 1.0
+    if of in (float("inf"), float("-inf")):
+        of = 1.0
+    of = min(max(of, 0.0), 1.0)
 
-    # Map overflow -> gamma target on a log scale (smooth, monotone).
-    # ov ~ 1.0  -> GAMMA_HI ; ov -> 0.0 -> GAMMA_LO
-    base = GAMMA_LO * ((GAMMA_HI / GAMMA_LO) ** ov)
+    cl = current_lambda if current_lambda == current_lambda else 0.01
+    if cl in (float("inf"), float("-inf")):
+        cl = 50.0
 
-    # Iteration prior: gentle exponential floor so we keep annealing even if
-    # overflow plateaus early (avoids getting stuck at high gamma).
-    decay = max(0.97 ** float(iteration), 0.02)
-    iter_target = GAMMA_LO + (GAMMA_HI - GAMMA_LO) * decay
+    # Base geometric growth that decays toward ~1 as iterations advance,
+    # matching DREAMPlace's annealed density-weight ramp.
+    base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Blend overflow signal with iteration prior (overflow leads).
-    target = 0.7 * base + 0.3 * iter_target
+    # Scale the multiplier by overflow: push hard while many bins are
+    # over-dense (cells still spreading), ease toward ~1 as the layout
+    # legalizes so wirelength is not over-penalized in fine-tuning.
+    mu = LOWER_PCOF + (base_mu - LOWER_PCOF) * of
 
-    # Plateau detection: if overflow has stalled, push gamma down harder
-    # to escape the stagnant region and sharpen the HPWL approximation.
-    if overflow_history is not None and len(overflow_history) >= 4:
-        recent = overflow_history[-4:]
-        spread = max(recent) - min(recent)
-        if spread < 1e-3:
-            target *= 0.85
+    # Stall detection: if overflow stops improving while still high,
+    # nudge the penalty harder to break out of the plateau.
+    if len(overflow_history) >= 2:
+        prev = overflow_history[-2]
+        if prev == prev and of > 0.1 and of >= prev - 1e-4:
+            mu *= 1.02
 
-    # Gradient guard: if gradients explode, raise gamma a touch for smoother
-    # descent; if they vanish, allow gamma to drop for finer tuning.
-    if gradient_norm is not None and gradient_norm > 0.0:
-        if gradient_norm > 5.0:
-            target *= 1.10
-        elif gradient_norm < 0.05:
-            target *= 0.95
+    # Keep the multiplier monotone-increasing but bounded.
+    mu = min(max(mu, 1.0), UPPER_PCOF)
 
-    # Smooth toward target from current value to avoid oscillation.
-    cur = current_lambda if current_lambda is not None else target
-    alpha = 0.5
-    new_lambda = (1.0 - alpha) * cur + alpha * target
-
-    # Never let gamma increase late in the run.
-    if new_lambda > cur and iteration > 20:
-        new_lambda = cur
+    new_lambda = cl * mu
+    if not (new_lambda == new_lambda) or new_lambda in (float("inf"), float("-inf")):
+        new_lambda = cl
 
     return float(min(max(new_lambda, 0.01), 50.0))

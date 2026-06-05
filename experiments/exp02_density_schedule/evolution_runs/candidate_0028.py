@@ -8,68 +8,44 @@ def lambda_schedule(
     UPPER_PCOF = 1.05
     LOWER_PCOF = 0.95
 
-    # sanitize overflow
-    of = overflow if overflow == overflow else 1.0
-    of = min(max(of, 0.0), 1.0)
+    # Base multiplicative growth that anneals down as iterations proceed,
+    # so early pressure is strong and late updates are gentle.
+    base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # mild global decay floor: density pressure relaxes very slowly as
-    # placement matures so late iterations can fine-tune wirelength
-    base = max(0.99985 ** float(iteration), 0.98)
+    # Sanitize overflow into [0, 1].
+    of = overflow
+    if of != of or of is None:  # NaN / None guard
+        of = 1.0
+    of = min(max(float(of), 0.0), 1.0)
 
-    # overflow-magnitude coefficient (DREAMPlace-style): strong push to
-    # spread cells while overflow is high, gentle once nearly legal
-    coef = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * (of ** 0.85)
+    # Overflow trend: positive/zero means overflow has stalled or grown.
+    trend = 0.0
+    if overflow_history and len(overflow_history) >= 2:
+        prev = overflow_history[-2]
+        last = overflow_history[-1]
+        if prev == prev and last == last:
+            trend = last - prev
 
-    # overflow-trend control: react to how fast overflow is dropping so we
-    # neither stall (too slow -> push harder) nor overshoot (too fast -> ease)
-    hist = [h for h in overflow_history if h == h]
-    if len(hist) >= 4:
-        recent = 0.5 * (hist[-1] + hist[-2])
-        older = 0.5 * (hist[-3] + hist[-4])
-        delta = older - recent            # positive == overflow decreasing
-        if delta <= 0.0:
-            coef *= 1.06                  # stalled/rising: increase pressure
-        elif delta <= 5e-5:
-            coef *= 1.05
-        elif delta <= 5e-4:
-            coef *= 1.025
-        elif delta > 1.5e-2:
-            coef *= 0.955                 # collapsing too fast: ease off
-        elif delta > 8e-3:
-            coef *= 0.98
-    elif len(hist) >= 2:
-        delta = hist[-2] - hist[-1]
-        if delta <= 1e-4:
-            coef *= 1.03
+    # Overflow-adaptive blend: push lambda harder while many bins are
+    # overfull, ease off as the placement legalizes.
+    adapt = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * of
+    mu = 0.5 * base_mu + 0.5 * adapt
 
-    # near-legal regime: relax density pressure so cells re-cluster and
-    # wirelength tightens, letting overflow ride up toward (but below) the
-    # legality target instead of over-spreading and leaving HPWL on the table
-    if of < 0.06:
-        coef *= 0.88 + 1.0 * of
-    elif of < 0.10:
-        coef *= 0.94
-    elif of < 0.18:
-        coef *= 0.985
+    # If overflow is stalling at a high level, add a little extra pressure.
+    if trend >= 0.0 and of > 0.10:
+        mu *= 1.01
 
-    # gradient safeguard: throttle updates when gradients blow up to keep
-    # the optimization numerically stable
-    if gradient_norm > 0.0 and gradient_norm == gradient_norm:
-        if gradient_norm > 5e4:
-            coef *= 0.90
-        elif gradient_norm > 1e4:
-            coef *= 0.955
-
-    # gate-safety guard (final override): as overflow approaches the legality
-    # ceiling, force net-increasing density pressure so the endgame can ride
-    # close to the target without ever drifting into the illegal band
-    if of > 0.105:
-        coef = max(coef, 1.02)
-    if of > 0.115:
-        coef = max(coef, 1.05)
-
-    mu = coef * base
-    mu = min(max(mu, 0.90), 1.10)
+    # Near-legal: stop growing lambda and lock in wirelength.
+    if of < 0.05:
+        mu = min(mu, 1.0)
 
     new_lambda = current_lambda * mu
-    return float(min(max(new_lambda, 0.01), 50.0))
+
+    # Hard clamp to the allowed range (prevents divergence to inf).
+    if new_lambda != new_lambda:
+        new_lambda = current_lambda
+    if new_lambda < 0.01:
+        new_lambda = 0.01
+    elif new_lambda > 50.0:
+        new_lambda = 50.0
+    return new_lambda

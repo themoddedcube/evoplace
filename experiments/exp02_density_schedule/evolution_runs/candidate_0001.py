@@ -1,30 +1,41 @@
 def lambda_schedule(
-    iteration: int,            # current optimization step
-    overflow: float,           # current density overflow in [0, 1]
-    overflow_history: list,    # overflow values at previous hook calls
-    gradient_norm: float,      # L2 norm of the position gradient
-    current_lambda: float,     # current density weight
+    iteration: int,            
+    overflow: float,           
+    overflow_history: list,    
+    gradient_norm: float,      
+    current_lambda: float,     
 ) -> float:
+    """ ... """
     UPPER_PCOF = 1.05
 
-    # sanitize overflow (guard NaN)
-    of = overflow if overflow == overflow else 1.0
-    of = min(max(of, 0.0), 1.0)
+    # Base multiplicative growth that gently decays as iterations progress
+    # (same backbone as the incumbent, so we never regress below it).
+    base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # DREAMPlace default ramp: aggressive while still spreading
-    base = max(0.9999 ** float(iteration), 0.98)
-    mu = UPPER_PCOF * base
+    # Estimate the recent overflow trend to drive an adaptive multiplier.
+    if len(overflow_history) >= 3:
+        delta = overflow_history[-1] - overflow_history[-3]
+    elif len(overflow_history) >= 2:
+        delta = overflow_history[-1] - overflow_history[-2]
+    else:
+        delta = 0.0
 
-    # Once overflow falls under the legalization target, taper mu from the
-    # full ramp down toward a gentle hold. mu is kept >= ~1.0 at all times,
-    # so lambda never decreases -> placement cannot un-spread (overflow stays
-    # legal and passes the fitness gate). Reducing the late-stage push lets the
-    # accurate low-gamma gradient sharpen HPWL instead of over-spreading cells.
-    TARGET = 0.10
-    if of < TARGET:
-        frac = of / TARGET                 # 1 at target -> 0 as it fully legalizes
-        hold = 1.0 + 0.006 * base          # gentle positive bias to hold the spread
-        mu = hold + (mu - hold) * frac
+    if delta >= 0.0:
+        # Overflow stalled or worsening: cells not spreading -> push density
+        # penalty harder to escape the plateau.
+        mu = base_mu * 1.04
+    else:
+        # Overflow improving: scale growth down in proportion to progress so we
+        # don't over-penalize density once spreading is already underway.
+        progress = min(-delta / max(overflow, 1e-6), 1.0)
+        mu = base_mu * (1.0 - 0.12 * progress)
+
+    # Late-stage fine-tuning: once placement is nearly legal, stop inflating the
+    # density weight so the optimizer can sharpen HPWL on accurate gradients.
+    if overflow < 0.10:
+        mu = min(mu, 1.0)
+    elif overflow < 0.20:
+        mu = min(mu, base_mu)
 
     new_lambda = current_lambda * mu
     return float(min(max(new_lambda, 0.01), 50.0))

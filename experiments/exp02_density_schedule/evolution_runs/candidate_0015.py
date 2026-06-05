@@ -5,53 +5,57 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    UPPER_PCOF = 1.05
-    LOWER_PCOF = 0.95
+    """Overflow-adaptive density-weight growth with hard clamping.
 
-    # Sanitize inputs (NaN/inf-safe)
-    of = overflow
-    if of != of or of in (float("inf"), float("-inf")):
+    Grows the density penalty geometrically (DREAMPlace style) but
+    modulates the multiplier by overflow level and recent overflow
+    progress: push harder while bins stay congested, ease off once
+    overflow is clearing so HPWL is not over-penalized late. Output is
+    clamped to a safe range to prevent the runaway -> inf blow-up of the
+    unbounded baseline.
+    """
+    UPPER_PCOF = 1.05
+    LOWER_PCOF = 1.01
+
+    # --- sanitize inputs (guard against NaN / inf) ---
+    of = overflow if overflow == overflow else 1.0
+    if of in (float("inf"), float("-inf")):
         of = 1.0
     of = min(max(of, 0.0), 1.0)
 
-    gn = gradient_norm
-    gn_bad = (gn != gn) or gn in (float("inf"), float("-inf"))
+    cl = current_lambda if current_lambda == current_lambda else 0.01
+    if cl in (float("inf"), float("-inf")):
+        cl = 50.0
+    cl = min(max(cl, 0.01), 50.0)
 
-    # Baseline DREAMPlace-style decaying multiplier
+    # --- baseline geometric growth, decaying with iteration ---
     base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Overflow trend over recent history
+    # --- recent overflow trend: positive delta => improving ---
     delta = 0.0
-    if isinstance(overflow_history, (list, tuple)) and len(overflow_history) >= 2:
-        a, b = overflow_history[-2], overflow_history[-1]
-        if a == a and b == b:  # both finite
-            delta = b - a
+    if overflow_history and len(overflow_history) >= 1:
+        prev = overflow_history[-1]
+        if prev == prev and prev not in (float("inf"), float("-inf")):
+            delta = min(max(prev, 0.0), 1.0) - of
 
-    # Overflow-adaptive ramp:
-    #   high overflow + stalling/rising  -> push density weight harder
-    #   overflow falling                 -> trust progress, gentle ramp
-    #   near-converged (low overflow)    -> ease off so wirelength can refine
-    if of > 0.1:
-        if delta >= 0.0:
-            mu = base_mu * 1.03      # not improving: increase pressure
-        else:
-            mu = base_mu             # improving: steady ramp
+    # --- adaptive multiplier ---
+    if delta <= 0.0:
+        # stalled or worsening: lean on overflow magnitude, push harder
+        adapt_mu = UPPER_PCOF * (1.0 + 0.5 * of)
     else:
-        # fine-tuning regime: relax toward 1.0 (and below) to sharpen HPWL
-        mu = min(base_mu, 1.0 + 0.5 * of)
-        if delta > 0.0:              # overflow creeping back up while converged
-            mu = max(mu, 1.0)
+        # improving: relax growth, scaled by remaining overflow
+        adapt_mu = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * of
 
-    # Gradient safety: damp if gradients are exploding or invalid
-    if gn_bad:
-        mu = LOWER_PCOF
-    elif gn > 0.0 and gn > 1e6:
-        mu = min(mu, 1.0)
+    mu = 0.5 * base_mu + 0.5 * adapt_mu
 
-    new_lambda = current_lambda * mu
+    # near-convergence: stop inflating lambda so fine HPWL tuning dominates
+    if of < 0.10:
+        mu = min(mu, 1.0 + 0.2 * (of / 0.10))
 
-    # Guard against NaN/inf blow-up (root cause of divergence)
-    if new_lambda != new_lambda or new_lambda in (float("inf"), float("-inf")):
-        new_lambda = current_lambda
+    mu = min(max(mu, 1.0), 1.10)
+
+    new_lambda = cl * mu
+    if not (new_lambda == new_lambda) or new_lambda in (float("inf"), float("-inf")):
+        new_lambda = cl
 
     return float(min(max(new_lambda, 0.01), 50.0))

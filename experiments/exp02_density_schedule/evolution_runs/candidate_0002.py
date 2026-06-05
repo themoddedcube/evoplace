@@ -5,35 +5,41 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    # Overflow-adaptive WA-WL smoothing schedule.
-    # High gamma early (cells overlap, high overflow -> smooth gradients),
-    # low gamma late (layout settled, low overflow -> accurate HPWL).
-    GAMMA_MIN, GAMMA_MAX = 0.5, 8.0
+    # Density-weight (lambda) update for differentiable global placement.
+    # Grow lambda multiplicatively to spread cells, but modulate the growth
+    # rate by overflow progress so the penalty never overshoots and diverges
+    # (unbounded multiplicative growth was what sent HPWL to inf).
+    base = current_lambda if current_lambda > 1e-6 else 0.01
 
-    # Defensive input clamping (NaN/out-of-range guards).
-    of = overflow if overflow == overflow else 1.0
-    of = min(max(of, 0.0), 1.0)
-    it = max(int(iteration), 0)
+    # Overflow trend: positive delta => overflow dropping (we are spreading).
+    delta = 0.0
+    if overflow_history:
+        delta = float(overflow_history[-1]) - overflow
 
-    # DREAMPlace-style log-scale map: overflow~1 -> GAMMA_MAX, overflow~0 -> GAMMA_MIN.
-    gamma = GAMMA_MIN * (GAMMA_MAX / GAMMA_MIN) ** of
+    # Base multiplier: push hardest while overflow is high, relax toward 1.0
+    # as overflow falls so lambda settles and HPWL can be fine-tuned.
+    drive = overflow if overflow < 1.0 else 1.0
+    if drive < 0.0:
+        drive = 0.0
+    mu = 1.0 + 0.05 * drive
 
-    # Iteration annealing floor: forces sharpening even if overflow stalls
-    # (guards against reward-hacking placements that keep overflow pinned high).
-    decay = 0.999 ** float(it)
-    gamma = min(gamma, GAMMA_MAX * max(decay, GAMMA_MIN / GAMMA_MAX))
+    # Stalled but still congested -> nudge harder to escape the plateau.
+    if overflow > 0.10 and delta <= 1e-4:
+        mu += 0.03
 
-    # Trend damping: smooth more when overflow rises, sharpen when converging.
-    if isinstance(overflow_history, list) and len(overflow_history) >= 2:
-        a, b = overflow_history[-1], overflow_history[-2]
-        if a == a and b == b:
-            gamma *= 1.05 if (a - b) > 0 else 0.97
+    # Overflow rising (diverging) -> back the penalty growth off.
+    if delta < -1e-4:
+        mu = max(1.0, mu - 0.04)
 
-    # Gradient-norm stability guard.
-    if gradient_norm == gradient_norm and gradient_norm > 0.0:
-        if gradient_norm > 1e3:
-            gamma *= 1.10
-        elif gradient_norm < 1e-3:
-            gamma *= 0.90
+    # Exploding gradients -> damp growth to stay numerically stable.
+    if gradient_norm > 1e3:
+        mu = min(mu, 1.01)
 
-    return float(min(max(gamma, 0.01), 50.0))
+    new_lambda = base * mu
+
+    # Hard clamp to the legal range.
+    if new_lambda < 0.01:
+        new_lambda = 0.01
+    elif new_lambda > 50.0:
+        new_lambda = 50.0
+    return float(new_lambda)

@@ -5,53 +5,62 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
+    """Overflow-adaptive multiplicative density-weight schedule.
+
+    Grows lambda quickly while cells are still congested (high overflow),
+    then tapers the growth as the layout spreads so HPWL can be fine-tuned
+    without the density penalty overshooting. Falls back gracefully on
+    degenerate inputs and always returns a value in [0.01, 50.0].
+    """
+    # --- sanitize inputs (guards against the inf/NaN that broke the parent) ---
+    def _finite(x, default):
+        try:
+            xf = float(x)
+        except (TypeError, ValueError):
+            return default
+        if xf != xf or xf in (float("inf"), float("-inf")):
+            return default
+        return xf
+
+    it = max(0, int(iteration))
+    ovf = _finite(overflow, 1.0)
+    ovf = min(max(ovf, 0.0), 1.0)
+    cur = _finite(current_lambda, 1.0)
+    if cur <= 0.0:
+        cur = 1.0
+    gnorm = _finite(gradient_norm, 1.0)
+
     UPPER_PCOF = 1.05
     LOWER_PCOF = 0.95
 
-    # Base annealing multiplier: strong early growth, gentle decay so the
-    # density weight keeps rising while cells are still clustered.
-    base = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
+    # Base DREAMPlace-style decaying multiplier (more aggressive early).
+    base = UPPER_PCOF * max(0.9999 ** float(it), 0.98)
 
-    # Overflow-adaptive term. High overflow => cells still overlapping =>
-    # push lambda up faster. Low overflow => near-legal => ease off so the
-    # wirelength term can fine-tune without density over-spreading.
-    of = max(0.0, min(1.0, overflow))
-    # smooth map: ~UPPER_PCOF at of=1, ~LOWER_PCOF at of=0
-    overflow_mu = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * (of ** 0.5)
+    # Overflow-adaptive boost: when many bins are over-dense, push the
+    # density weight up faster; when nearly spread, ease off toward 1.0.
+    # ovf in [0,1] -> factor in [LOWER_PCOF, UPPER_PCOF].
+    adapt = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * ovf
 
-    # Trend term: if overflow stalls or rises over recent history, the
-    # current weight is too weak -> accelerate; if it drops quickly, relax.
+    # Trend term: if overflow is rising vs. recent history, spread harder.
     trend = 1.0
-    if overflow_history is not None and len(overflow_history) >= 3:
-        recent = overflow_history[-3:]
-        delta = recent[-1] - recent[0]  # negative = improving
-        if delta > -0.005:
-            # plateau or worsening: boost growth
-            trend = 1.0 + min(0.10, abs(delta) * 2.0 + 0.02)
-        else:
-            # improving well: temper growth slightly
-            trend = 1.0 - min(0.05, (-delta))
+    if isinstance(overflow_history, (list, tuple)) and len(overflow_history) >= 3:
+        recent = [_finite(h, ovf) for h in overflow_history[-3:]]
+        prev = sum(recent) / len(recent)
+        if ovf > prev + 1e-4:
+            trend = 1.02
+        elif ovf < prev - 1e-4:
+            trend = 0.99
 
-    # Gradient safeguard: damp multiplicative growth when gradients explode
-    # to keep the optimization stable.
-    grad_damp = 1.0
-    if gradient_norm is not None and gradient_norm > 0.0:
-        if gradient_norm > 1e3:
-            grad_damp = 0.97
-        elif gradient_norm > 1e2:
-            grad_damp = 0.99
+    mu = base * adapt * trend
 
-    mu = base * overflow_mu * trend * grad_damp
-
-    # Late-stage convergence: once nearly legal, stop inflating lambda.
-    if of < 0.08:
+    # Damp the step if gradients are exploding to keep optimization stable.
+    if gnorm > 1e6:
         mu = min(mu, 1.0)
 
-    new_lambda = current_lambda * mu
+    # Keep the per-step multiplier in a sane band.
+    mu = min(max(mu, 0.90), 1.10)
 
-    # Clamp to the required output range.
-    if new_lambda < 0.01:
-        new_lambda = 0.01
-    elif new_lambda > 50.0:
-        new_lambda = 50.0
-    return float(new_lambda)
+    new_lambda = cur * mu
+
+    # Final clamp to the required output range.
+    return float(min(max(new_lambda, 0.01), 50.0))

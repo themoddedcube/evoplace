@@ -5,37 +5,45 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    UPPER_PCOF = 1.05
+    """Overflow-adaptive density-weight (lambda) multiplier with stall detection."""
     LOWER_PCOF = 0.95
-    REF_OVERFLOW = 0.10
+    UPPER_PCOF = 1.05
 
-    # Base DREAMPlace-style growth: aggressive early, gentle late.
+    # Sanitize inputs so a bad signal can never blow lambda up to inf.
+    of = overflow if (overflow == overflow and overflow != float("inf")) else 1.0
+    of = min(max(of, 0.0), 1.0)
+    cl = current_lambda if (current_lambda == current_lambda
+                            and current_lambda not in (float("inf"), float("-inf"))) else 1.0
+
+    # Base growth: strong early to cluster cells, decaying toward 1.0 late.
     base = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Recent overflow trend (negative => spreading is working).
-    if len(overflow_history) >= 2:
-        window = overflow_history[-min(5, len(overflow_history)):]
-        delta = window[-1] - window[0]
-    else:
-        delta = 0.0
+    # Overflow-adaptive scaling: high overflow -> push density harder,
+    # low overflow (cells well spread) -> ease off so HPWL can be refined.
+    of_factor = 0.5 + of  # ranges ~[0.5, 1.5]
+    mu = 1.0 + (base - 1.0) * of_factor
 
-    if overflow > REF_OVERFLOW:
-        # Cells still clustered: ramp the density weight, harder when stagnant.
-        push = 1.0 + min(1.0, overflow - REF_OVERFLOW)
-        if delta > -0.005:          # overflow not improving
-            push *= 1.05
-        mu = base * push
-    else:
-        # Near legalization: relax growth so wirelength can be fine-tuned.
-        ease = max(LOWER_PCOF, 1.0 - (REF_OVERFLOW - overflow))
-        mu = max(1.0, base * ease)
+    # Stall detection: if overflow has stopped improving over recent history,
+    # boost the multiplier to break out of the plateau.
+    if overflow_history and len(overflow_history) >= 4:
+        recent = [h for h in overflow_history[-4:]
+                  if h == h and h not in (float("inf"), float("-inf"))]
+        if len(recent) >= 4:
+            improvement = recent[0] - recent[-1]
+            if improvement < 1e-3 and of > 0.1:
+                mu *= 1.08  # stuck and still over-dense -> push harder
+            elif improvement < 0 and of < 0.1:
+                mu *= LOWER_PCOF  # over-spreading while nearly converged -> back off
 
-    # Scale-free gradient safeguard: damp the update only when the gradient is
-    # large relative to lambda (prevents density-force blow-ups late in flow).
-    if gradient_norm > 0.0 and current_lambda > 0.0:
-        ratio = gradient_norm / (current_lambda + 1e-12)
-        if ratio > 10.0:
-            mu = 1.0 + (mu - 1.0) / (1.0 + 0.05 * (ratio - 10.0))
+    # Late-stage damping: once well converged, stop growing lambda.
+    if of < 0.05:
+        mu = min(mu, 1.0)
 
-    new_lambda = current_lambda * mu
+    # Clamp the multiplier to a sane per-step range.
+    mu = min(max(mu, 0.9), 1.12)
+
+    new_lambda = cl * mu
+    if not (new_lambda == new_lambda) or new_lambda in (float("inf"), float("-inf")):
+        new_lambda = cl
+
     return float(min(max(new_lambda, 0.01), 50.0))

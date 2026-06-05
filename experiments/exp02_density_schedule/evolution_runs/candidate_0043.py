@@ -1,46 +1,48 @@
 def lambda_schedule(
-    iteration: int,            
-    overflow: float,           
-    overflow_history: list,    
-    gradient_norm: float,      
-    current_lambda: float,     
+    iteration: int,
+    overflow: float,
+    overflow_history: list,
+    gradient_norm: float,
+    current_lambda: float,
 ) -> float:
-    """ ... """
-    UPPER_PCOF = 1.05
-    LOWER_PCOF = 1.00
+    """Overflow-adaptive density-weight schedule with hard bounds."""
+    LOWER, UPPER = 0.01, 50.0
 
-    # DREAMPlace-style decaying base multiplier: aggressive early, gentle late
+    # Sanitize inputs (NaN/inf guards) so we never propagate inf.
+    lam = current_lambda
+    if not (lam == lam) or lam in (float("inf"), float("-inf")):
+        lam = 1.0
+    lam = min(max(lam, LOWER), UPPER)
+
+    ovf = overflow
+    if not (ovf == ovf) or ovf < 0.0:
+        ovf = 1.0
+    ovf = min(ovf, 1.0)
+
+    # Base multiplicative growth, decaying with iteration (ePlace/RePlAce style).
     base = max(0.9999 ** float(iteration), 0.98)
 
-    of = overflow if overflow == overflow else 1.0   # NaN guard
-    of = min(max(of, 0.0), 1.0)
-
-    # Progress signal: how fast is overflow clearing?
+    # Adapt growth to overflow trend: push harder while spreading is poor,
+    # ease off (and gently shrink) once overflow is low and still falling.
+    trend = 0.0
     if overflow_history and len(overflow_history) >= 2:
         prev = overflow_history[-2]
-        delta = prev - overflow_history[-1]          # >0 means improving
+        if prev == prev:  # not NaN
+            trend = ovf - prev  # >0 worsening, <0 improving
+
+    if ovf > 0.10:
+        # High overflow: grow weight, more aggressively if not improving.
+        mu = 1.05 * base
+        if trend > 0.0:
+            mu *= 1.02
     else:
-        delta = 0.0
+        # Near-converged: stop ramping, settle toward fine-tuning.
+        mu = 1.0 * base if trend < 0.0 else 1.01 * base
 
-    # Stall detector: when overflow plateaus, push density weight harder so
-    # cells finish spreading; when it is dropping fast, ease off and let the
-    # wirelength term refine the placement.
-    if delta <= 0.0:
-        stall = 1.0
-    else:
-        stall = max(0.0, 1.0 - delta * 20.0)
+    # Dampen if gradients explode to keep optimization stable.
+    if gradient_norm == gradient_norm and gradient_norm > 0.0:
+        if gradient_norm > 1e4:
+            mu = min(mu, 1.0)
 
-    # Overflow-adaptive blend: high overflow (clustered) -> grow faster,
-    # low overflow (spread, near-converged) -> back toward neutral for HPWL.
-    blend = 0.5 * of + 0.5 * stall
-    pcof = LOWER_PCOF + (UPPER_PCOF - LOWER_PCOF) * blend
-
-    mu = pcof * base
-
-    # Late-stage fine-tuning: once mostly spread, relax weight growth so the
-    # optimizer can trade density slack for shorter wirelength.
-    if of < 0.10:
-        mu = min(mu, 1.0 + (mu - 1.0) * (of / 0.10))
-
-    new_lambda = current_lambda * mu
-    return float(min(max(new_lambda, 0.01), 50.0))
+    lam = lam * mu
+    return float(min(max(lam, LOWER), UPPER))

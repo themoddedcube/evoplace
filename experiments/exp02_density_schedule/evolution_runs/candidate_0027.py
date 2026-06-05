@@ -5,46 +5,48 @@ def lambda_schedule(
     gradient_norm: float,
     current_lambda: float,
 ) -> float:
-    # DREAMPlace-style multiplicative density-weight update, made overflow-adaptive.
-    # Base envelope: aggressive early growth that anneals toward neutral, so the
-    # penalty ramps while cells are still clustered and eases as layout settles.
     UPPER_PCOF = 1.05
-    LOWER_PCOF = 0.95
-    base = max(0.9999 ** float(iteration), 0.98)
+    LOWER_PCOF = 1.001
 
-    # Overflow trend from history (negative delta == spreading is converging).
-    if len(overflow_history) >= 2:
-        delta = overflow - overflow_history[-2]
-    elif overflow_history:
-        delta = overflow - overflow_history[-1]
-    else:
-        delta = 0.0
+    # Base geometric growth (DREAMPlace-style), decaying with iteration.
+    base_mu = UPPER_PCOF * max(0.9999 ** float(iteration), 0.98)
 
-    # Smoothed recent slope to avoid reacting to single-iteration noise.
+    # Overflow-adaptive growth: push density penalty harder while the
+    # layout is still congested, ease off as bins clear out.
+    of = overflow if overflow == overflow else 1.0  # guard NaN
+    of = min(max(of, 0.0), 1.0)
+
+    # Map overflow -> growth multiplier in roughly [LOWER_PCOF, UPPER_PCOF*1.06].
+    # High overflow -> aggressive ramp; low overflow -> gentle.
+    of_mu = LOWER_PCOF + (UPPER_PCOF * 1.06 - LOWER_PCOF) * (of ** 0.5)
+
+    # Detect stalled overflow reduction; if progress stalls while still
+    # congested, give an extra nudge to escape the plateau.
+    stall_boost = 1.0
     if len(overflow_history) >= 4:
-        slope = (overflow_history[-1] - overflow_history[-4]) / 3.0
-    else:
-        slope = delta
+        recent = overflow_history[-4:]
+        improvement = recent[0] - recent[-1]
+        if improvement < 0.005 and of > 0.10:
+            stall_boost = 1.04
 
-    mu = UPPER_PCOF * base
+    # Blend base schedule with overflow signal (weight base more early,
+    # overflow feedback more once it becomes meaningful).
+    blend = 0.5
+    mu = (1.0 - blend) * base_mu + blend * of_mu
+    mu *= stall_boost
 
-    # Stalling / rising overflow: density not being enforced fast enough -> push.
-    if slope > -0.0005 and overflow > 0.10:
-        mu *= 1.05
-    # Healthy convergence: spreading well, let HPWL settle without over-penalizing.
-    elif delta < -0.001:
-        mu *= 0.98
+    # Once overflow is essentially resolved, stop inflating lambda so the
+    # optimizer can fine-tune HPWL at the converged density weight.
+    if of < 0.08:
+        mu = min(mu, 1.0 + 0.5 * (of / 0.08))
 
-    # Near-final regime: low overflow means geometry is essentially placed, so
-    # hold the penalty nearly flat and let low-gamma HPWL refinement dominate.
-    if overflow < 0.08:
-        mu = min(mu, 1.02)
-    elif overflow < 0.15:
-        mu = min(mu, 1.04)
+    # Gradient-norm safeguard: if gradients explode, damp the growth to
+    # avoid destabilizing the placement.
+    if gradient_norm == gradient_norm and gradient_norm > 0.0:
+        if gradient_norm > 1e4:
+            mu = min(mu, 1.01)
 
-    # Very noisy gradients -> damp the step to keep the trajectory stable.
-    if gradient_norm > 0.0 and gradient_norm > 5.0:
-        mu = 1.0 + (mu - 1.0) * 0.7
+    mu = min(max(mu, 0.95), 1.15)
 
     new_lambda = current_lambda * mu
     return float(min(max(new_lambda, 0.01), 50.0))
