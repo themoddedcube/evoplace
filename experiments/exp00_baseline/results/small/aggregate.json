@@ -1,9 +1,9 @@
 {
-  "mean_normalized_hpwl": 2050309.3125,
-  "geomean_normalized_hpwl": 2046201.1469421978,
-  "mean_overflow": 0.07608244195580482,
+  "mean_normalized_hpwl": 2066780.5,
+  "geomean_normalized_hpwl": 2063526.9829042703,
+  "mean_overflow": 0.07626567780971527,
   "mean_tns_proxy": 0.0,
-  "mean_runtime_s": 20.79721432000224,
+  "mean_runtime_s": 3.859429538017139,
   "total_divergence_events": 0,
   "num_benchmarks": 2
 }

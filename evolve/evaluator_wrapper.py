@@ -27,11 +27,11 @@ EVOLUTION_BENCHMARK = "fft_1"
 BENCHMARK_ROOT = PROJECT_ROOT / "benchmarks"
 
 # DREAMPlace baseline HPWL (legalized, GP converged to stop_overflow 0.07).
-# Measured 2026-06-04 on RTX 3060 / CUDA 12.6, default schedules, seed 42.
+# Measured 2026-06-05 on DGX Spark GB10 / CUDA 13.0, default schedules, seed 42.
 # Update after re-running experiments/exp00_baseline/run.py
 BASELINE_HPWL = {
-    "fft_1": 2.1800e6,
-    "fft_2": 1.9206e6,
+    "fft_1": 2.1827e6,
+    "fft_2": 1.9509e6,
 }
 
 # Stage-matched baselines for cascade evaluation [50 iters, 300 iters, full].
@@ -39,8 +39,8 @@ BASELINE_HPWL = {
 # thresholds (2.0 / 1.3) must compare against same-budget baselines or every
 # candidate (including the default schedule) would be culled at stage 0.
 BASELINE_HPWL_STAGES = {
-    "fft_1": [4.960094e6, 5.420234e6, 2.1800e6],
-    "fft_2": [3.248072e6, 3.906424e6, 1.9206e6],
+    "fft_1": [4.955422e6, 5.408622e6, 2.1827e6],
+    "fft_2": [3.252954e6, 3.933006e6, 1.9509e6],
 }
 
 

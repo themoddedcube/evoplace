@@ -1,13 +1,13 @@
 {
   "metrics": {
-    "hpwl": 2180036.5,
-    "mean_overflow": 0.08223240077495575,
+    "hpwl": 2182703.0,
+    "mean_overflow": 0.0826294794678688,
     "top5_overflow": 0.0,
     "tns_proxy": 0.0
   },
-  "runtime_s": 29.435946377008804,
+  "runtime_s": 5.487062669824809,
   "divergence_events": 0,
   "converged": false,
   "stage": 0,
-  "fitness": 2180036.5
+  "fitness": 2182703.0
 }
