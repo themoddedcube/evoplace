@@ -636,3 +636,31 @@ gate active. Tests still 114/114.
 Lesson for the protocol list: every objective the schedule can influence
 needs an explicit gate or the search WILL find the loophole — fitness
 specification is part of the noise discipline.
+
+## 2026-06-05 — Operational incident: orphaned ungated run, interleaved campaigns
+
+The overflow-gate "fix" initially appeared to fail: 30+ minutes after the
+gated relaunch, top candidates were again scoring 0.96-0.97 at overflow
+0.35. Root cause was operational, not logic: the kill before relaunch
+targeted the BASH WRAPPER PID, not the python child. The original ungated
+run survived as an orphan (reparented to init) and kept evolving reward
+hacks, while the gated relaunch ran concurrently — two evolution loops
+interleaving writes into the same log, results.tsv, and candidate files,
+and contending for the GPU (which perturbs runtime-derived MAP-Elites
+features in both).
+
+Detected by direct gate test (fresh process correctly returned -inf for
+the hacked best_program) + process listing showing both PIDs with their
+start times. Resolution: kill -9 both, archive contaminated output to
+experiments/exp02_density_schedule/evolution_runs_contaminated_interleaved/,
+relaunch once as a properly tracked process. Verified in-loop: an
+under-spread candidate (overflow 0.266) passed the HPWL cascade and was
+gated to -inf.
+
+Operational rules added to the discipline list:
+1. Kill the PYTHON process, verify with pgrep by command line, not by
+   remembered PID — wrappers die, children get orphaned.
+2. After any fix-and-relaunch, verify the fix IN-LOOP (first gated
+   elimination observed), not just in a fresh-process unit test.
+3. One campaign per log file / output dir, ever. Truncating a log a live
+   process holds open does not stop it writing.
