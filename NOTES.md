@@ -452,3 +452,70 @@ Implications for us:
 5. Their generalization collapse (5.05% → 0.51% when one algorithm must
    serve all cases) is the same Klein-4 overfit failure mode we documented —
    multi-design fitness stays mandatory.
+
+## 2026-06-05 — yaoxufeng/EvoPlace deep-dive (repo + paper) — synthesis
+
+Full reports from repo dissection + paper deep-read (arXiv 2504.17801 v1;
+GPT-4o `2024-08-06`, 60×2080Ti + 150×3090, ≥1000 candidates/component,
+1000 trials/case). Key facts with bearing on our campaign:
+
+**Where their gains live.** Init ≫ optimizer > preconditioner, and the
+big wins are macro-position initialization on macro-heavy MMS/ISPD2005
+(adaptec1/3/4: 11–18%). On clean/std-cell-like cases their gains are at
+the noise floor: newblue5 0.03%, bigblue4 0.20%, adaptec5 0.59%. Their
+~5% suite averages are carried by ~6 of 16 cases. They are SINGLE-SEED
+(`random_seed: 1002`, deterministic_flag) with admitted ~1% environment
+noise → their sub-2% rows are statistically zero. Our fft_1 ≤0.44% result
+is consistent with their std-cell regime, not an anomaly of our setup.
+
+**Generalization collapse**: case-by-case 5.05% → generalized 0.51% (MMS),
+5.29% → 2.85% (ISPD2005). DECISION NEEDED: per-case schedules vs
+generalizable schedules — expected gain differs ~10×. Their generalized
+ISPD2005 2.85% is roughly the ceiling for our (generalizing) approach.
+
+**Inference scaling is logarithmic** in candidate count (Fig 10c). Long
+hill-climbs are the wrong compute allocation; breadth-first generation +
+diversity-aware selection (perf + negative cosine sim of code embeddings,
+k-clique-densest-subgraph; then UCB w/ self-reflection) is theirs. Note:
+α, β, λ(UCB), temperature all unreported — reproducibility holes.
+
+**Repo reality check**: partial release — prompt/ dir and llm_*_evolution
+drivers OMITTED ("future version"). Evaluation is `cp` candidate over
+DREAMPlace source + subprocess + regex wHPWL parse; timeout→HPWL=1e16.
+Our hook injection + cascade is structurally ahead. Their edge is PROMPT
+CRAFT, not orchestration.
+
+**Adoptable (ranked, from their prompts/winners):**
+1. placedb-statistics catalog in the prompt with concrete example values
+   (lengths, areas, bin sizes) + "use statistical reductions, not raw
+   arrays" guidance → ground mutations in the actual circuit. Add fft_1
+   overflow trajectory facts to config.yaml system_message.
+2. CoT analysis step before mutation (their @@Macro-Init-Ana@@ splice);
+   with Claude 4.x this is one <analysis> block in the user template.
+3. Multi-design suite fitness: their score = mean(1 − cur/baseline) over
+   the suite. We evolve on fft_1 alone → add fft_2 (baselines already in
+   evaluator_wrapper) — also our Klein-4 mitigation.
+4. Mandatory "Key improvement points summary" docstring in candidates
+   (auditable archive + forced reasoning).
+5. Retrieval-augmented mutation: sample one reference schedule (cosine /
+   exponential / overflow-PID / piecewise, as CODE not names) per prompt
+   (their optimizers/*.txt pool, 72 files).
+6. Winning-code motifs to seed the reference pool: density/area-ratio
+   anchoring, net-weight-std-scaled noise, statistical reductions,
+   BB/Lipschitz adaptive steps, SA cooling.
+
+**From VeoPlace (arXiv 2603.28733, Gemini 2.5 Flash, no fine-tune):**
+3-seed mean±SE reporting (adopt); 512×512 placement renders as VLM
+feedback (k-means connectivity coloring) — for us: feed placement image +
+γ/overflow trajectory PLOT into the reflection step; weak soft-constraints
+beat strong (λ_A=0.001) — prior for Exp 2 λ schedules; Top-Stratified
+parent selection (rank-softmax over clusters, τ≈0.43) as cheap A/B vs
+MAP-Elites sampling.
+
+**Strategic conclusion**: we are attacking their weakest lever (schedule/
+optimizer) on their weakest design type (std-cell) in their weakest
+setting (generalization). Exp 1 completes as a boundary-result; priority
+shifts to Exp 3 (init — their strongest lever, and ours can be net-driven
+GNN warm-init rather than their statistical heuristics), Exp 2 restructured
+as breadth-first + multi-design fitness + vision-in-the-loop reflection.
+Also: PAPER must cite 2504.17801 + 2603.28733; project rename likely.
