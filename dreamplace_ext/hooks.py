@@ -32,7 +32,8 @@ def set_gamma_schedule(fn: Optional[Callable]):
 
     Signature: fn(iteration: int, total_iterations: int,
                   overflow: float, hpwl_history: list) -> float
-    Returns γ ∈ (0, ∞). DreamPlace default: linear decay 8.0 → 0.5.
+    Returns γ ∈ (0, ∞), dimensionless (scaled by bin size inside PlaceObj).
+    DreamPlace default: overflow-driven, 4.0 * 10^((overflow-0.1)*20/9 - 1).
     """
     global _gamma_schedule_fn
     _gamma_schedule_fn = fn

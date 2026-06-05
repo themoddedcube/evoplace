@@ -11,6 +11,7 @@ FIXED: This file is not modified during evolution.
 import importlib.util
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -25,12 +26,21 @@ EVOLUTION_BENCHMARK = "fft_1"
 # Flat layout: benchmarks/<circuit>/ — same as evaluator.benchmark_suite
 BENCHMARK_ROOT = PROJECT_ROOT / "benchmarks"
 
-# DREAMPlace baseline HPWL on fft_1 (set after Exp 0 baseline run)
-# Update this after running experiments/exp00_baseline/run.py
+# DREAMPlace baseline HPWL (legalized, GP converged to stop_overflow 0.07).
+# Measured 2026-06-04 on RTX 3060 / CUDA 12.6, default schedules, seed 42.
+# Update after re-running experiments/exp00_baseline/run.py
 BASELINE_HPWL = {
-    "fft_1": 4.2e8,
-    "fft_2": 3.8e8,
-    "des_perf_1": 2.3e9,
+    "fft_1": 2.1800e6,
+    "fft_2": 1.9206e6,
+}
+
+# Stage-matched baselines for cascade evaluation [50 iters, 300 iters, full].
+# Truncated runs land ~2-2.5x above the converged HPWL, so the cascade
+# thresholds (2.0 / 1.3) must compare against same-budget baselines or every
+# candidate (including the default schedule) would be culled at stage 0.
+BASELINE_HPWL_STAGES = {
+    "fft_1": [4.960094e6, 5.420234e6, 2.1800e6],
+    "fft_2": [3.248072e6, 3.906424e6, 1.9206e6],
 }
 
 
@@ -82,7 +92,7 @@ def evaluate(program_path: str, experiment: str = "exp01_wl_smoothing") -> Dict[
     try:
         if function_name == "gamma_schedule":
             val = evolved_fn(0, 1000, 0.9, [])
-            if not (0.01 <= val <= 20.0):
+            if not (0.01 <= val <= 50.0):
                 return {"score": -float("inf"), "metrics": {"error": f"gamma out of range: {val}"}}
         elif function_name == "lambda_schedule":
             val = evolved_fn(0, 0.9, [], 0.1, 1.0)
@@ -95,14 +105,20 @@ def evaluate(program_path: str, experiment: str = "exp01_wl_smoothing") -> Dict[
     bench_dir = BENCHMARK_ROOT / EVOLUTION_BENCHMARK
     output_dir = PROJECT_ROOT / "experiments" / experiment / "evolution_runs" / "tmp"
     baseline_hpwl = BASELINE_HPWL.get(EVOLUTION_BENCHMARK, 1.0)
+    stage_baselines = BASELINE_HPWL_STAGES.get(EVOLUTION_BENCHMARK, baseline_hpwl)
 
     kwargs = {hook_arg: evolved_fn}
-    use_stub = not (PROJECT_ROOT / "vendor" / "dreamplace" / "dreamplace").exists()
+    # EVOPLACE_FORCE_STUB=1 forces the synthetic stub (used by unit tests so
+    # they stay fast and deterministic; real runs exercise real DREAMPlace).
+    use_stub = (
+        os.environ.get("EVOPLACE_FORCE_STUB") == "1"
+        or not (PROJECT_ROOT / "vendor" / "dreamplace" / "dreamplace").exists()
+    )
 
     result = run_cascade_evaluation(
         benchmark_dir=bench_dir,
         output_dir=output_dir,
-        baseline_hpwl=baseline_hpwl,
+        baseline_hpwl=stage_baselines,
         use_stub=use_stub,
         **kwargs,
     )

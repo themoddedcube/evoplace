@@ -19,6 +19,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from evolve.evaluator_wrapper import load_evolved_function, evaluate
 
 
+@pytest.fixture(autouse=True)
+def _force_stub(monkeypatch):
+    # These are plumbing tests (program loading, sanity checks, score
+    # wiring) — run them against the stub. Real-DREAMPlace behavior of
+    # specific schedules is an experiment, not a unit test.
+    monkeypatch.setenv("EVOPLACE_FORCE_STUB", "1")
+
+
 VALID_GAMMA_CODE = textwrap.dedent("""\
     import math
 
@@ -51,7 +59,7 @@ OVERFLOW_ADAPTIVE_CODE = textwrap.dedent("""\
 
 OUT_OF_RANGE_CODE = textwrap.dedent("""\
     def gamma_schedule(iteration, total_iterations, overflow, hpwl_history):
-        return 100.0  # INVALID: out of [0.01, 20.0] range
+        return 100.0  # INVALID: out of [0.01, 50.0] range
 """)
 
 SYNTAX_ERROR_CODE = textwrap.dedent("""\

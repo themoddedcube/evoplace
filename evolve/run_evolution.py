@@ -74,22 +74,56 @@ def run_with_openevolve(experiment: str, iterations: int, output_dir: Path):
     return result
 
 
-def run_autoresearch_loop(experiment: str, iterations: int, output_dir: Path):
+def detect_backend() -> str:
+    """Pick an LLM backend: Claude Code CLI (no API key) > Anthropic API."""
+    import shutil
+    if shutil.which("claude"):
+        return "claude-code-cli"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic-api"
+    raise RuntimeError(
+        "No LLM backend available: install the Claude Code CLI "
+        "(https://claude.ai/code) or export ANTHROPIC_API_KEY."
+    )
+
+
+def _propose_with_llm(prompt: str, backend: str) -> str:
+    """Send a mutation prompt to the chosen backend, return raw response text."""
+    if backend == "claude-code-cli":
+        import subprocess
+        proc = subprocess.run(
+            ["claude", "-p", prompt, "--output-format", "text"],
+            capture_output=True, text=True, timeout=600,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"claude CLI failed: {proc.stderr[:500]}")
+        return proc.stdout
+    elif backend == "anthropic-api":
+        import anthropic
+        client = anthropic.Anthropic()
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return message.content[0].text
+    raise ValueError(f"Unknown backend: {backend}")
+
+
+def run_autoresearch_loop(experiment: str, iterations: int, output_dir: Path,
+                          backend: str = "auto"):
     """
     Autoresearch-style loop: simpler fallback if OpenEvolve is not installed.
 
-    Uses Claude API directly to iteratively improve the schedule function.
-    Logs all results to results.tsv.
+    Asks an LLM (Claude Code CLI or Anthropic API) to iteratively improve
+    the schedule function. Logs all results to results.tsv.
     """
-    import anthropic
     import importlib.util
     import hashlib
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY environment variable not set")
-
-    client = anthropic.Anthropic(api_key=api_key)
+    if backend == "auto":
+        backend = detect_backend()
+    logger.info(f"LLM backend: {backend}")
     output_dir.mkdir(parents=True, exist_ok=True)
     results_tsv = output_dir / "results.tsv"
 
@@ -160,17 +194,15 @@ Rules:
 - Preserve the function signature exactly
 - Only modify the function body
 - No new imports
-- Return float in [0.01, 20.0]
+- Return float in [0.01, 50.0]
 
 Return ONLY the improved Python function, no explanation."""
 
-        message = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        response = message.content[0].text
+        try:
+            response = _propose_with_llm(prompt, backend)
+        except Exception as e:
+            logger.warning(f"LLM proposal failed ({e}); keeping current program")
+            continue
         # Extract code from response
         if "```python" in response:
             code = response.split("```python")[1].split("```")[0].strip()
@@ -196,6 +228,9 @@ def main():
     parser.add_argument("--iterations", type=int, default=200)
     parser.add_argument("--mode", choices=["openevolve", "autoresearch"], default="openevolve",
                         help="openevolve: full MAP-Elites evolution; autoresearch: simpler loop")
+    parser.add_argument("--backend", choices=["auto", "claude-code-cli", "anthropic-api"],
+                        default="auto",
+                        help="LLM backend for autoresearch mode (auto: CLI if installed, else API)")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -204,10 +239,6 @@ def main():
         datefmt="%H:%M:%S",
     )
 
-    if "ANTHROPIC_API_KEY" not in os.environ:
-        logger.error("ANTHROPIC_API_KEY not set. Export it before running.")
-        sys.exit(1)
-
     output_dir = PROJECT_ROOT / "experiments" / args.experiment / "evolution_runs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -215,10 +246,19 @@ def main():
     logger.info(f"Mode: {args.mode}")
     logger.info(f"Iterations: {args.iterations}")
 
-    if args.mode == "openevolve":
+    mode = args.mode
+    if mode == "openevolve":
+        try:
+            import openevolve  # noqa: F401
+        except ImportError:
+            logger.warning("OpenEvolve not installed; falling back to autoresearch loop")
+            mode = "autoresearch"
+
+    if mode == "openevolve":
         result = run_with_openevolve(args.experiment, args.iterations, output_dir)
     else:
-        result = run_autoresearch_loop(args.experiment, args.iterations, output_dir)
+        result = run_autoresearch_loop(args.experiment, args.iterations, output_dir,
+                                       backend=args.backend)
 
     logger.info("Done.")
 

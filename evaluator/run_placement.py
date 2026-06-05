@@ -176,15 +176,18 @@ def run_placement_stub(
     """
     rng = np.random.default_rng(seed + hash(str(benchmark_dir)) % 10000)
 
-    # Synthetic baseline HPWL (varies by benchmark)
+    # Synthetic baseline HPWL (varies by benchmark). fft_1/fft_2 match the
+    # real measured GPU baselines so stub results stay on the same scale as
+    # the cascade baselines in evolve/evaluator_wrapper.py; the rest are
+    # rough guesses pending measurement.
     benchmark_name = benchmark_dir.name
     hpwl_baselines = {
-        "fft_1": 4.2e8, "fft_2": 3.8e8, "fft_a": 5.1e8, "fft_b": 4.9e8,
-        "des_perf_1": 2.3e9, "matrix_mult_1": 1.8e9, "matrix_mult_2": 1.6e9,
-        "matrix_mult_a": 2.1e9, "superblue12": 8.7e9, "superblue14": 7.2e9,
-        "superblue19": 9.1e9,
+        "fft_1": 2.180e6, "fft_2": 1.921e6, "fft_a": 2.8e6, "fft_b": 2.7e6,
+        "des_perf_1": 1.2e7, "matrix_mult_1": 9.5e6, "matrix_mult_2": 8.5e6,
+        "matrix_mult_a": 1.1e7, "superblue12": 4.5e7, "superblue14": 3.8e7,
+        "superblue19": 4.8e7,
     }
-    base_hpwl = hpwl_baselines.get(benchmark_name, 1.0e9)
+    base_hpwl = hpwl_baselines.get(benchmark_name, 5.0e6)
 
     # Simulate schedule effect: a custom gamma_schedule_fn can improve HPWL
     schedule_factor = 1.0
@@ -292,16 +295,21 @@ def run_placement(
             elif m is not None:
                 yield m
 
+        # hpwl and overflow live on different metric entries (the final
+        # legalization metric has hpwl but no overflow), so track the last
+        # non-None value of each independently.
         final = None
+        overflow = None
         for m in _iter_metrics(all_metrics):
             if getattr(m, "hpwl", None) is not None:
                 final = m
+            m_ovfl = getattr(m, "goverflow", None)
+            if m_ovfl is None:
+                m_ovfl = getattr(m, "overflow", None)
+            if m_ovfl is not None:
+                overflow = m_ovfl
         if final is None:
             raise RuntimeError("DreamPlace returned no HPWL metrics")
-
-        overflow = getattr(final, "goverflow", None)
-        if overflow is None:
-            overflow = getattr(final, "overflow", None)
         mean_overflow = (
             float(np.mean([float(v) for v in np.atleast_1d(
                 overflow.cpu().numpy() if hasattr(overflow, "cpu") else overflow)]))
@@ -342,7 +350,7 @@ STAGE_ITERATIONS = [50, 300, 2000]
 def run_cascade_evaluation(
     benchmark_dir: Path,
     output_dir: Path,
-    baseline_hpwl: float,
+    baseline_hpwl,
     gamma_schedule_fn: Optional[Callable] = None,
     lambda_schedule_fn: Optional[Callable] = None,
     init_positions_fn: Optional[Callable] = None,
@@ -352,10 +360,25 @@ def run_cascade_evaluation(
     """
     Three-stage cascade evaluation. Returns None if candidate is eliminated early.
 
-    Stage 1 (50 iters): Reject if overflow not decreasing.
-    Stage 2 (300 iters): Reject if normalized HPWL > threshold[0].
-    Stage 3 (full):     Full evaluation with all metrics.
+    Stage 0 (50 iters):  Reject if normalized HPWL > thresholds[0].
+    Stage 1 (300 iters): Reject if normalized HPWL > thresholds[1].
+    Stage 2 (full):      Full evaluation with all metrics.
+
+    baseline_hpwl may be a single float (used for every stage) or a sequence
+    of one baseline per stage. Truncated runs land at a very different HPWL
+    scale than converged ones (a 50-iter HPWL is ~10x the converged value),
+    so stage-matched baselines are required for the early thresholds to mean
+    "no worse than k times the default schedule at the same iteration budget".
     """
+    if isinstance(baseline_hpwl, (int, float)):
+        stage_baselines = [float(baseline_hpwl)] * len(STAGE_ITERATIONS)
+    else:
+        stage_baselines = [float(b) for b in baseline_hpwl]
+        assert len(stage_baselines) == len(STAGE_ITERATIONS), (
+            f"need one baseline per stage ({len(STAGE_ITERATIONS)}), "
+            f"got {len(stage_baselines)}"
+        )
+
     for stage, (n_iter, threshold) in enumerate(
         zip(STAGE_ITERATIONS, CASCADE_THRESHOLDS + [float("inf")])
     ):
@@ -372,7 +395,7 @@ def run_cascade_evaluation(
         result.stage = stage
 
         if stage < 2:  # not final stage
-            norm_hpwl = result.metrics["hpwl"] / baseline_hpwl
+            norm_hpwl = result.metrics["hpwl"] / stage_baselines[stage]
             if norm_hpwl > threshold:
                 logger.info(f"Stage {stage} eliminated: norm_hpwl={norm_hpwl:.3f} > {threshold}")
                 return None
