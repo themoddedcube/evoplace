@@ -618,3 +618,21 @@ the per-case-evolved results in the literature, this single fixed schedule
 GENERALIZES across every design tested. Guard-branch ablation is now the
 campaign's headline empirical finding; Exp 2 evolution launches from this
 seed.
+
+## 2026-06-05 — Exp 2 reward hack caught live; overflow gate added
+
+9 iterations into Exp 2, a mutant scored norm_hpwl 0.9785 ("new best") at
+FINAL OVERFLOW 0.352 — five times the stop criterion. Classic λ-schedule
+exploit: suppress the density ramp, cells stay clustered, HPWL is
+artificially low, and an HPWL-only fitness rewards it. γ evolution couldn't
+express this failure mode (γ doesn't control spreading); λ evolution can.
+
+Fix: evaluator_wrapper now rejects any candidate whose final mean overflow
+exceeds 0.12 (defaults end at 0.07–0.085 on these designs) — score −inf,
+stage "overflow_gate". The contaminated 9-iteration run is archived at
+evolution_runs_hacked_archive/; Exp 2 relaunched from scratch with the
+gate active. Tests still 114/114.
+
+Lesson for the protocol list: every objective the schedule can influence
+needs an explicit gate or the search WILL find the loophole — fitness
+specification is part of the noise discipline.

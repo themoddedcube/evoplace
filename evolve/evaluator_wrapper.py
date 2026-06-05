@@ -164,6 +164,26 @@ def evaluate(program_path: str, experiment: str = "exp01_wl_smoothing") -> Dict[
     norm_hpwl = result.metrics["hpwl"] / baseline_hpwl
     tns = result.metrics["tns_proxy"]
 
+    # Density gate: a candidate that fails to spread (final overflow far above
+    # the stop criterion) gets an artificially low HPWL from clustered cells —
+    # the classic lambda-schedule reward hack (observed live in Exp 2: a
+    # mutant scored norm 0.978 at overflow 0.35 vs the required ~0.07).
+    # Default runs on these designs end at 0.07-0.085, so 0.12 is a generous
+    # bound that only catches genuine under-spreading.
+    OVERFLOW_GATE = 0.12
+    final_overflow = float(result.metrics.get("mean_overflow", 0.0))
+    if final_overflow > OVERFLOW_GATE:
+        return {
+            "score": -float("inf"),
+            "metrics": {
+                "eliminated": True,
+                "stage": "overflow_gate",
+                "overflow": final_overflow,
+                "hpwl": result.metrics["hpwl"],
+            },
+            "artifacts": {"status": f"under-spread: overflow {final_overflow:.3f} > {OVERFLOW_GATE}"},
+        }
+
     # Score: maximized by OpenEvolve. Lower HPWL or lower TNS → higher score.
     if fitness_metric == "tns_proxy":
         score = -tns
