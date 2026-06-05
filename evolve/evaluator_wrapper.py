@@ -70,16 +70,28 @@ def evaluate(program_path: str, experiment: str = "exp01_wl_smoothing") -> Dict[
         "exp01_wl_smoothing": {
             "function_name": "gamma_schedule",
             "hook_arg": "gamma_schedule_fn",
+            "fitness_metric": "normalized_hpwl",
         },
         "exp02_density_schedule": {
             "function_name": "lambda_schedule",
             "hook_arg": "lambda_schedule_fn",
+            "fitness_metric": "normalized_hpwl",
+        },
+        "exp04_timing_pathgroup": {
+            # Evolves alpha (timing weight) and gamma_timing schedules.
+            # Fitness switches to tns_proxy; requires ICCAD 2015 benchmarks (have SDC).
+            "function_name": "timing_alpha_schedule",
+            "hook_arg": "timing_loss_fn",
+            "fitness_metric": "tns_proxy",
+            "evolution_benchmark": "mempool_tile",  # ICCAD 2015; override EVOLUTION_BENCHMARK
         },
     }
 
     config = experiment_configs.get(experiment, experiment_configs["exp01_wl_smoothing"])
     function_name = config["function_name"]
     hook_arg = config["hook_arg"]
+    fitness_metric = config.get("fitness_metric", "normalized_hpwl")
+    bench_override = config.get("evolution_benchmark", EVOLUTION_BENCHMARK)
 
     # Load the evolved function
     try:
@@ -101,11 +113,10 @@ def evaluate(program_path: str, experiment: str = "exp01_wl_smoothing") -> Dict[
     except Exception as e:
         return {"score": -float("inf"), "metrics": {"error": f"Sanity check failed: {e}"}}
 
-    # Run cascade evaluation
-    bench_dir = BENCHMARK_ROOT / EVOLUTION_BENCHMARK
+    bench_dir = BENCHMARK_ROOT / bench_override
     output_dir = PROJECT_ROOT / "experiments" / experiment / "evolution_runs" / "tmp"
-    baseline_hpwl = BASELINE_HPWL.get(EVOLUTION_BENCHMARK, 1.0)
-    stage_baselines = BASELINE_HPWL_STAGES.get(EVOLUTION_BENCHMARK, baseline_hpwl)
+    baseline_hpwl = BASELINE_HPWL.get(bench_override, 1.0)
+    stage_baselines = BASELINE_HPWL_STAGES.get(bench_override, baseline_hpwl)
 
     kwargs = {hook_arg: evolved_fn}
     # EVOPLACE_FORCE_STUB=1 forces the synthetic stub (used by unit tests so
@@ -115,24 +126,49 @@ def evaluate(program_path: str, experiment: str = "exp01_wl_smoothing") -> Dict[
         or not (PROJECT_ROOT / "vendor" / "dreamplace" / "dreamplace").exists()
     )
 
-    result = run_cascade_evaluation(
-        benchmark_dir=bench_dir,
-        output_dir=output_dir,
-        baseline_hpwl=stage_baselines,
-        use_stub=use_stub,
-        **kwargs,
-    )
+    # On CPU (no CUDA), the full cascade is counterproductive: placement never
+    # converges so stage thresholds dominate. Use a flat 50-iter run instead,
+    # which still ranks schedule quality via early-phase HPWL trajectory.
+    try:
+        import torch
+        has_gpu = torch.cuda.is_available()
+    except Exception:
+        has_gpu = False
 
-    if result is None:
-        # Eliminated by cascade
-        return {
-            "score": -float("inf"),
-            "metrics": {"eliminated": True, "stage": "cascade"},
-            "artifacts": {"status": "eliminated_by_cascade"},
-        }
+    if has_gpu or use_stub:
+        # GPU or stub: full cascade with stage-matched baselines
+        result = run_cascade_evaluation(
+            benchmark_dir=bench_dir,
+            output_dir=output_dir,
+            baseline_hpwl=stage_baselines,
+            use_stub=use_stub,
+            **kwargs,
+        )
+        if result is None:
+            return {
+                "score": -float("inf"),
+                "metrics": {"eliminated": True, "stage": "cascade"},
+                "artifacts": {"status": "eliminated_by_cascade"},
+            }
+    else:
+        # CPU-only: 50-iter flat evaluation — fast, noisy but comparable across candidates
+        from evaluator.run_placement import run_placement
+        result = run_placement(
+            benchmark_dir=bench_dir,
+            output_dir=output_dir / "cpu_eval",
+            max_iterations=50,
+            use_stub=False,
+            **kwargs,
+        )
 
     norm_hpwl = result.metrics["hpwl"] / baseline_hpwl
-    score = -norm_hpwl  # OpenEvolve maximizes score; lower HPWL = higher score
+    tns = result.metrics["tns_proxy"]
+
+    # Score: maximized by OpenEvolve. Lower HPWL or lower TNS → higher score.
+    if fitness_metric == "tns_proxy":
+        score = -tns
+    else:
+        score = -norm_hpwl
 
     return {
         "score": score,
@@ -140,7 +176,7 @@ def evaluate(program_path: str, experiment: str = "exp01_wl_smoothing") -> Dict[
             "normalized_hpwl": norm_hpwl,
             "hpwl": result.metrics["hpwl"],
             "overflow": result.metrics["mean_overflow"],
-            "tns_proxy": result.metrics["tns_proxy"],
+            "tns_proxy": tns,
             "runtime_s": result.runtime_s,
             "divergence_events": result.divergence_events,
         },

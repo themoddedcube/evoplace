@@ -32,7 +32,7 @@ TRAIN_PY = PROJECT_ROOT / "autoresearch" / "train.py"
 TIME_BUDGET_SECONDS = 600  # 10 minutes per experiment
 
 # Updated after Exp 0 baseline run
-BASELINE_HPWL_FFT1 = 4.2e8  # placeholder; update after Exp 0
+BASELINE_HPWL_FFT1 = 2182147.0  # measured Exp 0 CPU baseline (WSL2, 1000 iters)
 
 
 def load_train_module():

@@ -36,37 +36,55 @@ logger = logging.getLogger(__name__)
 # DreamPlace Python API wrapper
 # ---------------------------------------------------------------------------
 
-def load_dreamplace():
-    """Import DreamPlace modules from the vendor submodule.
+# Use the no-space symlink path (~/evoplace) if available — DreamPlace's C++ place_io
+# parser splits file paths on whitespace, so paths with spaces cause assertion failures.
+_SYMLINK = Path.home() / "evoplace"
+_EFFECTIVE_ROOT = _SYMLINK if _SYMLINK.exists() else PROJECT_ROOT
+DREAMPLACE_ROOT = _EFFECTIVE_ROOT / "vendor" / "dreamplace"
+DREAMPLACE_INSTALL = DREAMPLACE_ROOT / "install"
 
-    Prefers the CMake install tree (vendor/dreamplace/install), which contains
-    both the Python sources and the compiled ops. The bare source tree has no
-    compiled ops and would shadow the install dir, so it is only used as a
-    fallback (e.g. stub-development machines without a build).
+_dreamplace_loaded = False
+
+
+def load_dreamplace():
+    """Import DreamPlace modules from the CMake install tree.
+
+    Prefers vendor/dreamplace/install (Python sources + compiled ops); the
+    bare source tree has no compiled ops and is only a fallback for
+    stub-development machines. DREAMPlace mixes flat intra-package imports
+    (import Params) with package imports (import dreamplace.ops...), so both
+    the install root and the package dir must be on sys.path — the same
+    layout Placer.py runs with.
     """
-    dreamplace_root = PROJECT_ROOT / "vendor" / "dreamplace"
-    if not dreamplace_root.exists():
+    global _dreamplace_loaded
+    if not DREAMPLACE_ROOT.exists():
         raise RuntimeError(
-            f"DreamPlace not found at {dreamplace_root}. "
+            f"DreamPlace not found at {DREAMPLACE_ROOT}. "
             "Run: git submodule update --init vendor/dreamplace"
         )
-    install_root = dreamplace_root / "install"
-    if (install_root / "dreamplace").exists():
-        dreamplace_root = install_root
-    # DREAMPlace mixes flat intra-package imports (import Params) with
-    # package imports (import dreamplace.ops...), so both the root and the
-    # package dir must be importable — same layout Placer.py runs with.
-    sys.path.insert(0, str(dreamplace_root))
-    sys.path.insert(0, str(dreamplace_root / "dreamplace"))
+    install_dir = (DREAMPLACE_INSTALL
+                   if (DREAMPLACE_INSTALL / "dreamplace").exists()
+                   else DREAMPLACE_ROOT)
+    for p in [str(install_dir), str(install_dir / "dreamplace")]:
+        if p not in sys.path:
+            sys.path.insert(0, p)
     try:
         import Params
         import PlaceDB
         import NonLinearPlace
+        _dreamplace_loaded = True
         return Params, PlaceDB, NonLinearPlace
     except ImportError as e:
+        install_cmd = (
+            "mkdir -p vendor/dreamplace/build && "
+            "cd vendor/dreamplace/build && "
+            "cmake .. -DCMAKE_INSTALL_PREFIX=../install -DCMAKE_CXX_ABI=1 "
+            "-DPython_EXECUTABLE=$(which python3) && "
+            "make -j$(nproc) && make install"
+        )
         raise RuntimeError(
             f"Failed to import DreamPlace: {e}. "
-            "Did you build it? See README 'Manual Build' (cmake + make install)."
+            f"See README 'Manual Build', or:\n  {install_cmd}"
         ) from e
 
 
@@ -93,10 +111,10 @@ def build_dreamplace_params(
     params = Params.Params()
     params.load(str(base_config_path))
 
-    # Resolve config-relative input paths against the project root so runs
-    # work regardless of the caller's cwd.
+    # Resolve config-relative input paths against the project root (via the
+    # no-space symlink when available) so runs work regardless of cwd.
     def _resolve(p: str) -> str:
-        return p if os.path.isabs(p) else str(PROJECT_ROOT / p)
+        return p if os.path.isabs(p) else str(_EFFECTIVE_ROOT / p)
 
     for key in ("def_input", "verilog_input", "aux_input", "lib_input",
                 "sdc_input", "early_lib_input", "late_lib_input"):
@@ -108,10 +126,60 @@ def build_dreamplace_params(
 
     params.result_dir = str(output_dir)
     params.random_seed = seed
-    # Override iteration count only; keep the config's bins / lr / optimizer.
+    # Override iteration count only; keep the config's bins / lr / optimizer /
+    # gpu flag (the per-benchmark JSON decides CPU vs GPU).
     params.global_place_stages[0]["iteration"] = max_iterations
 
     return params
+
+
+# ---------------------------------------------------------------------------
+# Path-group timing weight injection (Exp 4, Variant A)
+# ---------------------------------------------------------------------------
+
+def _apply_path_group_weights(placedb, params,
+                              activation_overflow: float = 0.3):
+    """
+    Classify nets by timing path group and register criticality weights for
+    phased activation: weights are applied to data_collections.net_weights only
+    once overflow drops below `activation_overflow` (default 0.3).
+
+    Applying weights during early global spreading (overflow > 0.3) biases
+    cell distribution before bins have room to spread, causing density hotspots
+    near timing-critical macro clusters.  Phased activation avoids this.
+
+    Silently no-ops if no Liberty/SDC inputs are configured (ISPD 2015
+    benchmarks have no timing constraints).
+    """
+    sdc_path = getattr(params, "sdc_input", None) or None
+    lib_paths = (getattr(params, "lib_input", None)
+                 or getattr(params, "late_lib_input", None) or [])
+    if isinstance(lib_paths, str):
+        lib_paths = [lib_paths]
+
+    if not sdc_path or not lib_paths:
+        return
+
+    try:
+        from models.path_group_classifier import (
+            PathGroupConfig, classify_nets, parse_liberty_cell_types,
+        )
+        from dreamplace_ext import hooks
+
+        cell_type_map: Dict[str, str] = {}
+        for lp in lib_paths:
+            cell_type_map.update(parse_liberty_cell_types(lp))
+
+        pg_data = classify_nets(placedb, cell_type_map, sdc_path, PathGroupConfig())
+        hooks.set_path_group_data(pg_data)
+        hooks.set_deferred_net_weights(pg_data.net_weights, threshold=activation_overflow)
+        logger.info(
+            f"Path-group weights registered (activate at overflow ≤ {activation_overflow}): "
+            f"{pg_data.has_timing_constraints} timing nets"
+        )
+
+    except Exception as e:
+        logger.warning(f"Path-group weight setup failed (falling back to plain WL): {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -277,11 +345,18 @@ def run_placement(
     )
 
     t0 = time.perf_counter()
+    divergence = 0
     try:
         db = PlaceDB.PlaceDB()
         db(params)
+
+        # Path-group timing weights (Exp 4 / Variant A).
+        # Runs only when both Liberty and SDC inputs are present in params.
+        # On ISPD 2015 (no SDC) this is a no-op; all net_weights remain 1.0.
+        _apply_path_group_weights(db, params)
+
         placer = NonLinearPlace.NonLinearPlace(params, db, None)
-        learning_rate = params.global_place_stages[0]["learning_rate"]
+        learning_rate = params.global_place_stages[0].get("learning_rate", 0.01)
         all_metrics = placer(params, db, learning_rate)
         runtime = time.perf_counter() - t0
         divergence = hooks.get_divergence_count()
@@ -316,11 +391,14 @@ def run_placement(
             if overflow is not None else 1.0
         )
 
+        # TNS: real value only when a timing-driven run produced one (Exp 4
+        # with ICCAD benchmarks); 0.0 otherwise — no synthetic proxy.
+        tns_attr = getattr(final, "tns", None)
         metrics = {
             "hpwl": float(final.hpwl),
             "mean_overflow": mean_overflow,
             "top5_overflow": 0.0,   # not produced by DREAMPlace; kept for schema stability
-            "tns_proxy": 0.0,       # timing-driven runs not enabled yet (Exp 4)
+            "tns_proxy": float(tns_attr) if tns_attr is not None else 0.0,
         }
         converged = mean_overflow <= float(getattr(params, "stop_overflow", 0.07)) + 1e-3
         result = PlacementResult(metrics, runtime, divergence, converged=converged)
@@ -332,8 +410,9 @@ def run_placement(
         runtime = time.perf_counter() - t0
         logger.exception(f"DreamPlace failed: {e}")
         return PlacementResult(
-            {"hpwl": float("inf"), "mean_overflow": 1.0, "top5_overflow": 1.0, "tns_proxy": float("inf")},
-            runtime, divergence_events=99, converged=False
+            {"hpwl": float("inf"), "mean_overflow": 1.0,
+             "top5_overflow": 1.0, "tns_proxy": float("inf")},
+            runtime, divergence_events=divergence + 99, converged=False
         )
     finally:
         hooks.reset()
