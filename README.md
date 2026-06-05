@@ -10,6 +10,16 @@ EvoPlace is a research system that applies LLM-guided evolutionary search to aut
 
 ---
 
+### The λ audit finding — `fft_2` (ISPD 2015)
+
+The campaign's biggest result, animated: DREAMPlace's default density-weight
+update (right) vs the same update with its HPWL-feedback guard branch removed
+(left) — identical final density, **−9% wirelength** on fft_2 (verified −1 to
+−8.7% across 4 designs, 14/14 paired seeds; [NOTES.md](NOTES.md) 2026-06-05).
+The live λ annotation shows the unconditional ramp pulling ahead mid-flight.
+
+![Lambda ablation vs default](graphs/comparisons/fft_2_lambda_s42/comparison.gif)
+
 ### Evolved vs. default γ schedule — `fft_1` (ISPD 2015)
 
 The best evolved schedule from Exp 1 (`candidate_0117`, overflow-driven
@@ -38,6 +48,11 @@ as density scatter (128 GB unified memory holds the whole design resident).
 <img src="graphs/comparisons/superblue12_showcase/convergence.gif" width="100%">
 
 <img src="graphs/comparisons/superblue12_showcase/density.gif" width="100%">
+
+| Potential | Field magnitude |
+|:---:|:---:|
+| ![superblue12 potential](graphs/comparisons/superblue12_showcase/potential.gif) | ![superblue12 field](graphs/comparisons/superblue12_showcase/field.gif) |
+
 
 ---
 
