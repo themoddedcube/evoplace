@@ -1,0 +1,104 @@
+23:06:05 INFO: LLM backend: claude-code-cli
+=== Iteration 1/20 ===
+23:06:12 INFO: Stage 0 passed: PlacementResult(hpwl=4.944e+06, overflow=0.6500, tns=0.000e+00, t=4.3s, div=0)
+23:06:17 INFO: Stage 1 passed: PlacementResult(hpwl=5.488e+06, overflow=0.6894, tns=0.000e+00, t=4.8s, div=0)
+23:06:47 INFO: Stage 2 passed: PlacementResult(hpwl=2.183e+06, overflow=0.0824, tns=0.000e+00, t=31.4s, div=0)
+23:06:47 INFO: Score: -1.0013 | norm_hpwl: 1.0013
+23:06:47 INFO: New best! score=-1.0013
+=== Iteration 2/20 ===
+23:07:23 INFO: Stage 0 passed: PlacementResult(hpwl=4.993e+06, overflow=0.6397, tns=0.000e+00, t=1.9s, div=0)
+23:07:27 INFO: Stage 1 passed: PlacementResult(hpwl=5.882e+06, overflow=0.7190, tns=0.000e+00, t=5.2s, div=0)
+23:07:58 INFO: Stage 2 passed: PlacementResult(hpwl=2.185e+06, overflow=0.0823, tns=0.000e+00, t=31.9s, div=0)
+23:07:58 INFO: Score: -1.0024 | norm_hpwl: 1.0024
+=== Iteration 3/20 ===
+23:08:34 INFO: Stage 0 passed: PlacementResult(hpwl=4.943e+06, overflow=0.6500, tns=0.000e+00, t=1.9s, div=0)
+23:08:39 INFO: Stage 1 passed: PlacementResult(hpwl=5.169e+06, overflow=0.6711, tns=0.000e+00, t=5.2s, div=0)
+23:09:09 INFO: Stage 2 passed: PlacementResult(hpwl=2.176e+06, overflow=0.0822, tns=0.000e+00, t=30.9s, div=0)
+23:09:09 INFO: Score: -0.9980 | norm_hpwl: 0.9980
+23:09:09 INFO: New best! score=-0.9980
+=== Iteration 4/20 ===
+23:09:39 INFO: Stage 0 passed: PlacementResult(hpwl=4.942e+06, overflow=0.6498, tns=0.000e+00, t=2.0s, div=0)
+23:09:45 INFO: Stage 1 passed: PlacementResult(hpwl=5.713e+06, overflow=0.7041, tns=0.000e+00, t=6.1s, div=0)
+23:10:12 INFO: Stage 2 passed: PlacementResult(hpwl=2.180e+06, overflow=0.0825, tns=0.000e+00, t=28.6s, div=0)
+23:10:12 INFO: Score: -1.0002 | norm_hpwl: 1.0002
+=== Iteration 5/20 ===
+23:11:17 INFO: Stage 0 passed: PlacementResult(hpwl=4.937e+06, overflow=0.6496, tns=0.000e+00, t=1.9s, div=0)
+23:11:22 INFO: Stage 1 passed: PlacementResult(hpwl=5.220e+06, overflow=0.6716, tns=0.000e+00, t=5.1s, div=0)
+23:11:52 INFO: Stage 2 passed: PlacementResult(hpwl=2.185e+06, overflow=0.0823, tns=0.000e+00, t=30.3s, div=0)
+23:11:52 INFO: Score: -1.0024 | norm_hpwl: 1.0024
+=== Iteration 6/20 ===
+23:12:22 INFO: Stage 0 passed: PlacementResult(hpwl=4.833e+06, overflow=0.6526, tns=0.000e+00, t=1.7s, div=0)
+23:12:27 INFO: Stage 1 passed: PlacementResult(hpwl=5.293e+06, overflow=0.6772, tns=0.000e+00, t=5.1s, div=0)
+23:12:56 INFO: Stage 2 passed: PlacementResult(hpwl=2.178e+06, overflow=0.0825, tns=0.000e+00, t=30.0s, div=0)
+23:12:56 INFO: Score: -0.9989 | norm_hpwl: 0.9989
+=== Iteration 7/20 ===
+23:13:40 INFO: Stage 0 passed: PlacementResult(hpwl=4.886e+06, overflow=0.6513, tns=0.000e+00, t=1.9s, div=0)
+23:13:45 INFO: Stage 1 passed: PlacementResult(hpwl=6.111e+06, overflow=0.7213, tns=0.000e+00, t=4.7s, div=0)
+23:14:12 INFO: Stage 2 passed: PlacementResult(hpwl=2.176e+06, overflow=0.0822, tns=0.000e+00, t=28.3s, div=0)
+23:14:12 INFO: Score: -0.9983 | norm_hpwl: 0.9983
+=== Iteration 8/20 ===
+23:14:40 INFO: Stage 0 passed: PlacementResult(hpwl=5.008e+06, overflow=0.6500, tns=0.000e+00, t=1.9s, div=0)
+23:14:45 INFO: Stage 1 passed: PlacementResult(hpwl=5.488e+06, overflow=0.6893, tns=0.000e+00, t=5.2s, div=0)
+23:15:14 INFO: Stage 2 passed: PlacementResult(hpwl=2.176e+06, overflow=0.0824, tns=0.000e+00, t=29.8s, div=0)
+23:15:14 INFO: Score: -0.9983 | norm_hpwl: 0.9983
+=== Iteration 9/20 ===
+23:16:08 INFO: Stage 0 passed: PlacementResult(hpwl=4.925e+06, overflow=0.6501, tns=0.000e+00, t=1.7s, div=0)
+23:16:11 INFO: Stage 1 passed: PlacementResult(hpwl=5.307e+06, overflow=0.6782, tns=0.000e+00, t=4.4s, div=0)
+23:16:40 INFO: Stage 2 passed: PlacementResult(hpwl=2.180e+06, overflow=0.0826, tns=0.000e+00, t=29.2s, div=0)
+23:16:40 INFO: Score: -1.0001 | norm_hpwl: 1.0001
+=== Iteration 10/20 ===
+23:18:15 INFO: Stage 0 passed: PlacementResult(hpwl=4.899e+06, overflow=0.6501, tns=0.000e+00, t=1.8s, div=0)
+23:18:20 INFO: Stage 1 passed: PlacementResult(hpwl=5.775e+06, overflow=0.7086, tns=0.000e+00, t=5.0s, div=0)
+23:18:48 INFO: Stage 2 passed: PlacementResult(hpwl=2.187e+06, overflow=0.0825, tns=0.000e+00, t=29.6s, div=0)
+23:18:48 INFO: Score: -1.0033 | norm_hpwl: 1.0033
+=== Iteration 11/20 ===
+23:19:25 INFO: Stage 0 passed: PlacementResult(hpwl=4.954e+06, overflow=0.6502, tns=0.000e+00, t=1.7s, div=0)
+23:19:30 INFO: Stage 1 passed: PlacementResult(hpwl=5.600e+06, overflow=0.6994, tns=0.000e+00, t=5.0s, div=0)
+23:19:58 INFO: Stage 2 passed: PlacementResult(hpwl=2.183e+06, overflow=0.0823, tns=0.000e+00, t=29.6s, div=0)
+23:19:58 INFO: Score: -1.0016 | norm_hpwl: 1.0016
+=== Iteration 12/20 ===
+23:20:48 INFO: Stage 0 passed: PlacementResult(hpwl=4.849e+06, overflow=0.6511, tns=0.000e+00, t=1.7s, div=0)
+23:20:52 INFO: Stage 1 passed: PlacementResult(hpwl=5.944e+06, overflow=0.7114, tns=0.000e+00, t=5.2s, div=0)
+23:21:22 INFO: Stage 2 passed: PlacementResult(hpwl=2.180e+06, overflow=0.0828, tns=0.000e+00, t=31.3s, div=0)
+23:21:22 INFO: Score: -0.9999 | norm_hpwl: 0.9999
+=== Iteration 13/20 ===
+23:21:54 INFO: Stage 0 passed: PlacementResult(hpwl=4.980e+06, overflow=0.6511, tns=0.000e+00, t=1.9s, div=0)
+23:21:59 INFO: Stage 1 passed: PlacementResult(hpwl=6.032e+06, overflow=0.7238, tns=0.000e+00, t=5.3s, div=0)
+23:22:29 INFO: Stage 2 passed: PlacementResult(hpwl=2.182e+06, overflow=0.0820, tns=0.000e+00, t=31.3s, div=0)
+23:22:29 INFO: Score: -1.0008 | norm_hpwl: 1.0008
+=== Iteration 14/20 ===
+23:22:56 INFO: Stage 0 passed: PlacementResult(hpwl=4.952e+06, overflow=0.6503, tns=0.000e+00, t=2.0s, div=0)
+23:23:01 INFO: Stage 1 passed: PlacementResult(hpwl=5.958e+06, overflow=0.7166, tns=0.000e+00, t=5.3s, div=0)
+23:23:33 INFO: Stage 2 passed: PlacementResult(hpwl=2.179e+06, overflow=0.0822, tns=0.000e+00, t=33.1s, div=0)
+23:23:33 INFO: Score: -0.9994 | norm_hpwl: 0.9994
+=== Iteration 15/20 ===
+23:24:20 INFO: Stage 0 passed: PlacementResult(hpwl=4.946e+06, overflow=0.6505, tns=0.000e+00, t=2.1s, div=0)
+23:24:26 INFO: Stage 1 passed: PlacementResult(hpwl=5.964e+06, overflow=0.7218, tns=0.000e+00, t=6.5s, div=0)
+23:24:56 INFO: Stage 2 passed: PlacementResult(hpwl=2.183e+06, overflow=0.0826, tns=0.000e+00, t=31.1s, div=0)
+23:24:56 INFO: Score: -1.0013 | norm_hpwl: 1.0013
+=== Iteration 16/20 ===
+23:25:23 INFO: Stage 0 passed: PlacementResult(hpwl=4.951e+06, overflow=0.6502, tns=0.000e+00, t=1.9s, div=0)
+23:25:29 INFO: Stage 1 passed: PlacementResult(hpwl=4.960e+06, overflow=0.6569, tns=0.000e+00, t=5.3s, div=0)
+23:25:58 INFO: Stage 2 passed: PlacementResult(hpwl=2.183e+06, overflow=0.0826, tns=0.000e+00, t=31.0s, div=0)
+23:25:58 INFO: Score: -1.0014 | norm_hpwl: 1.0014
+=== Iteration 17/20 ===
+23:26:21 INFO: Stage 0 passed: PlacementResult(hpwl=4.854e+06, overflow=0.6515, tns=0.000e+00, t=2.0s, div=0)
+23:26:27 INFO: Stage 1 passed: PlacementResult(hpwl=5.734e+06, overflow=0.7054, tns=0.000e+00, t=5.6s, div=0)
+23:26:55 INFO: Stage 2 passed: PlacementResult(hpwl=2.185e+06, overflow=0.0823, tns=0.000e+00, t=29.7s, div=0)
+23:26:55 INFO: Score: -1.0023 | norm_hpwl: 1.0023
+=== Iteration 18/20 ===
+23:27:38 INFO: Stage 0 passed: PlacementResult(hpwl=4.909e+06, overflow=0.6511, tns=0.000e+00, t=2.1s, div=0)
+23:27:43 INFO: Stage 1 passed: PlacementResult(hpwl=6.038e+06, overflow=0.7198, tns=0.000e+00, t=5.6s, div=0)
+23:28:14 INFO: Stage 2 passed: PlacementResult(hpwl=2.184e+06, overflow=0.0826, tns=0.000e+00, t=32.1s, div=0)
+23:28:14 INFO: Score: -1.0019 | norm_hpwl: 1.0019
+=== Iteration 19/20 ===
+23:28:58 INFO: Stage 0 passed: PlacementResult(hpwl=4.936e+06, overflow=0.6498, tns=0.000e+00, t=1.8s, div=0)
+23:29:03 INFO: Stage 1 passed: PlacementResult(hpwl=5.614e+06, overflow=0.6962, tns=0.000e+00, t=5.3s, div=0)
+23:29:33 INFO: Stage 2 passed: PlacementResult(hpwl=2.180e+06, overflow=0.0825, tns=0.000e+00, t=30.6s, div=0)
+23:29:33 INFO: Score: -1.0002 | norm_hpwl: 1.0002
+=== Iteration 20/20 ===
+23:30:02 INFO: Stage 0 passed: PlacementResult(hpwl=4.938e+06, overflow=0.6504, tns=0.000e+00, t=2.1s, div=0)
+23:30:08 INFO: Stage 1 passed: PlacementResult(hpwl=6.102e+06, overflow=0.7242, tns=0.000e+00, t=5.9s, div=0)
+23:30:38 INFO: Stage 2 passed: PlacementResult(hpwl=2.182e+06, overflow=0.0822, tns=0.000e+00, t=31.3s, div=0)
+23:30:38 INFO: Score: -1.0010 | norm_hpwl: 1.0010
+Evolution complete. Best score: -0.9980
