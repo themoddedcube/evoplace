@@ -1,19 +1,8 @@
 # EvoPlace: LLM-Guided Evolutionary VLSI Placement
 
-> **Status**: Research concluded (June 2026) &nbsp;|&nbsp; **Paper**: [paper/paper.pdf](paper/paper.pdf) &nbsp;|&nbsp; **Python**: 3.10+ &nbsp;|&nbsp; **Framework**: DREAMPlace 4.0
+> **Status**: Research concluded (June 2026) &nbsp;|&nbsp; **Paper**: [paper/paper.pdf](paper/paper.pdf) &nbsp;|&nbsp; **Python**: 3.10+ &nbsp;|&nbsp; **Framework**: DREAMPlace
 
 EvoPlace is a research system that applies LLM-guided evolutionary search to automatically discover better algorithmic components for differentiable VLSI placement.
-
-## The result, up front
-
-**The evolved schedules ended up only marginally better than DREAMPlace's defaults — +0.315% ± 0.09% HPWL at best — so if you're here for a faster/better placer, this isn't it.** What this repo *is*: a complete, honestly-documented research campaign with some findings we think are worth your time anyway:
-
-- **A rank inversion that should worry the field**: the best candidate by single-seed score turned out to be pure seed luck under multi-seed re-evaluation, while the runner-up was the real (tiny) improvement. Nearly all published placement gains are single-seed. ([paper](paper/paper.pdf))
-- **A noise-calibrated evaluation protocol** — measured noise floor, hook-liveness gates, paired multi-seed confirmation with a calibration row — that catches both dead code paths and noise-fitting before they reach a results table.
-- **A clean injection harness**: evolve placement schedule functions as pure Python, no rebuilds, with cascade evaluation that rejects bad candidates at 13× lower cost.
-- **The full story in [NOTES.md](NOTES.md)** — including the dead-hook fiasco, the data-provenance bug we caught in our own results, and an adversarially-verified literature review ([RESEARCH.md](docs/RESEARCH.md)) of what actually moves placement QoR.
-- **An audit finding bigger than the evolution**: removing the guard branch from DREAMPlace's density-weight update wins **1–9% HPWL at matched density, 14/14 paired seeds across 4 designs** — found while writing the Exp 2 seed, flagged by the sanity gate at 7σ, and it *generalizes* ([NOTES.md](NOTES.md), 2026-06-05).
-- Some genuinely fun [visualizations](#evolved-vs-default-γ-schedule--fft_1-ispd-2015) of the e-place physics.
 
 ---
 
@@ -45,6 +34,17 @@ as density scatter (128 GB unified memory holds the whole design resident).
 <img src="graphs/comparisons/superblue12_showcase/convergence.gif" width="720">
 
 <img src="graphs/comparisons/superblue12_showcase/density.gif" width="720">
+
+---
+
+## Key Findings
+
+- **A rank inversion that should worry the field**: the best candidate by single-seed score turned out to be pure seed luck under multi-seed re-evaluation, while the runner-up was the real (tiny) improvement. Nearly all published placement gains are single-seed. ([paper](paper/paper.pdf))
+- **A noise-calibrated evaluation protocol** — measured noise floor, hook-liveness gates, paired multi-seed confirmation with a calibration row — that catches both dead code paths and noise-fitting before they reach a results table.
+- **A clean injection harness**: evolve placement schedule functions as pure Python, no rebuilds, with cascade evaluation that rejects bad candidates at 13× lower cost.
+- **The full story in [NOTES.md](NOTES.md)** — including the dead-hook fiasco, the data-provenance bug we caught in our own results, and an adversarially-verified literature review ([RESEARCH.md](docs/RESEARCH.md)) of what actually moves placement QoR.
+- **An audit finding bigger than the evolution**: removing the guard branch from DREAMPlace's density-weight update wins **1–9% HPWL at matched density, 14/14 paired seeds across 4 designs** — found while writing the Exp 2 seed, flagged by the sanity gate at 7σ, and it *generalizes* ([NOTES.md](NOTES.md), 2026-06-05).
+- Some genuinely fun [visualizations](#evolved-vs-default-γ-schedule--fft_1-ispd-2015) of the e-place physics.
 
 ---
 
