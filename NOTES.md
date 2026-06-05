@@ -367,3 +367,56 @@ norm_hpwl = 0.999. Evolution starts at parity, not from a 2x handicap.
 
 Exp 1 (20 iters, claude-code-cli backend) launched. Cascade cost/candidate:
 ~5s cull at stage 0, ~70s full pass.
+
+## 2026-06-05 — DGX Spark (GB10) Bring-up + Exp 1 Relaunch
+
+Followed SPARK_SETUP.md. Deviations worth recording:
+
+1. **libfl-dev was missing from the apt list** — Limbo's bison parsers need
+   `FlexLexer.h` (FLEX_INCLUDE_DIR NOTFOUND at configure). Added to §2 deps.
+2. **CUDA 13.0 broke two CMake assumptions** (both committed to evoplace-hooks):
+   the sm_120 manual-append condition `major>=12 AND minor>=8` is false for
+   13.0, and the default gencode list still contained sm_60/61/70, which
+   nvcc 13 dropped. Fixed: CUDA>=13 gets archs {7.5..9.0} + sm_120.
+3. **HeteroSTA prebuilt release is x86-64 only** → timing_heterosta cannot
+   link on aarch64. Skipped on non-x86_64 (only needed for Exp 4 timing;
+   revisit before Exp 4 on this machine).
+4. PyTorch 2.12.0+cu130 aarch64 wheel works out of the box: GB10, cc (12,1).
+
+**Tests**: 114/114. **GB10 baselines (seed 42)**: fft_1 2.1827e6 @ ovf 0.083
+(5.5s), fft_2 1.9509e6 @ ovf 0.070 (2.2s) — ~5x faster than the 3060, HPWL
+within 0.1%/1.6% of the 3060 values. Stage baselines re-measured (within
+0.7% of 3060); both dicts in evaluator_wrapper.py updated.
+
+**Sanity gate**: seed norm_hpwl = 0.99932 ✓. Added a differential liveness
+probe beyond the guide: a constant γ=0.01 program gets culled by the cascade
+at stage 1 while the seed passes at ~1.0 — hooks demonstrably steer the
+placement. Recommend making this probe a standing part of the gate.
+
+### Exp 1 relaunch (200 iters, claude-code-cli) — NOISE WARNING
+
+Status at iteration ~93/200: 84/93 candidates culled by cascade. Finite
+scores (norm_hpwl): 0.9956, 0.9992, 0.9992, 0.9998, 1.0001 (seed), 1.0035,
+1.0065, 1.0227, 1.0351.
+
+**Most "improvements" so far are indistinguishable from noise.** With the
+single-seed noise floor at σ ≈ 0.15% (measured on the 3060 campaign), every
+survivor except 0.9956 sits within ~2σ of the seed. The 0.9992 "new bests"
+that the hill-climber celebrated are 0.5σ events — exactly the failure mode
+where evolution chases seed luck instead of schedule quality. Only the
+0.9956 candidate (−0.44%, ~3σ) is a plausibly real effect, and even that is
+one sample.
+
+**Protocol going forward (do not skip):**
+1. Treat single-seed rankings as candidate *generation* only, never as
+   results. No claimed improvement below ~0.45% (3σ) from a single seed.
+2. After every evolution run: `scripts/multiseed_rerank.py` — paired
+   candidate/default ratios on identical (bench, seed) pairs, 5 seeds ×
+   {fft_1, fft_2}. Pairing cancels per-seed placement luck; the seed program
+   rides along as a calibration row (its ratio must be ~1.000).
+3. Visual comparisons (make_comparison_gif.py, plot_interval patch) are
+   prepared but DEFERRED to the end of the campaign — no GPU contention with
+   scoring runs, and no GIFs of effects we haven't confirmed are real.
+4. Medium-term fix is multi-seed fitness *inside* the evolution loop (the
+   thing this 128 GB box was bought for) — score = mean over 3-5 seeds,
+   which drops the noise floor to ~0.07% and makes 0.2% effects climbable.
