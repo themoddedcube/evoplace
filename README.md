@@ -28,8 +28,8 @@ Bin-level views of the e-place physics during the same run: cell density
 flattening as cells spread, the electric potential that drives them, and the
 field magnitude.
 
-| Density | Potential | |E| Field |
-|---|---|---|
+| Density | Potential | Field magnitude |
+|:---:|:---:|:---:|
 | ![density](graphs/comparisons/fft_1_s42/density.gif) | ![potential](graphs/comparisons/fft_1_s42/potential.gif) | ![field](graphs/comparisons/fft_1_s42/field.gif) |
 
 ### Large-design showcase — `superblue12` (1.3M cells)
