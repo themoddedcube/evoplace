@@ -610,3 +610,11 @@ Provenance note: this is NOT an evolved result — it is an ablation of the
 default's guard branch, found accidentally via the hook-API constraint and
 caught by the sanity gate. The protocol (gate → 7σ flag → paired
 verification) worked exactly as designed.
+
+**Robustness check (same protocol, 2 seeds each):** matrix_mult_1 ratios
+0.98294/0.98277 (−1.7%), des_perf_1 0.99053/0.99034 (−1.0%), all at matched
+overflow. Total: 14/14 paired wins across 4 designs, −1% to −8.7%. Unlike
+the per-case-evolved results in the literature, this single fixed schedule
+GENERALIZES across every design tested. Guard-branch ablation is now the
+campaign's headline empirical finding; Exp 2 evolution launches from this
+seed.
