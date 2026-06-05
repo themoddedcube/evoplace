@@ -41,8 +41,9 @@ field magnitude.
 Full convergence of DREAMPlace's default flow on superblue12, cells rendered
 as density scatter (128 GB unified memory holds the whole design resident).
 
-![superblue12 convergence](graphs/comparisons/superblue12_showcase/convergence.gif)
-![superblue12 density](graphs/comparisons/superblue12_showcase/density.gif)
+| Convergence | Density |
+|:---:|:---:|
+| <img src="graphs/comparisons/superblue12_showcase/convergence.gif" width="100%"> | <img src="graphs/comparisons/superblue12_showcase/density.gif" width="100%"> |
 
 ---
 

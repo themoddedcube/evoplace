@@ -1,0 +1,96 @@
+# OpenEvolve configuration for EvoPlace Experiment 1: WL Smoothing Schedule Evolution
+#
+# This config drives evolutionary search over the lambda_schedule function.
+# For Exp 2 (lambda_schedule), change initial_program and function_name below.
+
+max_iterations: 200
+log_level: INFO
+
+# LLM ensemble
+llm:
+  models:
+    - name: claude-sonnet-4-6
+      weight: 0.7
+    - name: claude-haiku-4-5-20251001
+      weight: 0.3
+  temperature: 0.8
+  max_tokens: 2048
+  # Diff-based mutation: LLM generates targeted changes rather than full rewrites
+  diff_mode: true
+
+# Population (MAP-Elites)
+database:
+  num_islands: 4
+  population_per_island: 25
+  feature_dimensions:
+    - normalized_hpwl      # quality axis 1 (primary)
+    - convergence_speed    # quality axis 2 (secondary, derived from runtime)
+  migration_interval: 20   # migrate best programs between islands every N generations
+  elite_size: 5            # keep top-5 programs in archive regardless of MAP-Elites grid
+
+# Cascade evaluation (early stopping for bad programs)
+evaluator:
+  cascade_thresholds:
+    - 2.0   # Stage 1 (50 iter): reject if norm_hpwl > 2.0×baseline
+    - 1.3   # Stage 2 (300 iter): reject if norm_hpwl > 1.3×baseline
+  timeout_seconds: 120     # per stage
+  parallel_evaluations: 2  # run 2 evaluations in parallel (adjust to GPU count)
+
+# Evolution prompt
+prompt:
+  system_message: |
+    You are an expert EDA (Electronic Design Automation) algorithm researcher
+    specializing in VLSI placement. Your task is to evolve the lambda_schedule
+    function to minimize HPWL (half-perimeter wirelength) in differentiable
+    global placement.
+
+    Context:
+    - lambda (λ) is the density-penalty weight in the placement objective
+      WL(x) + λ · D(x); it balances wirelength pull against cell spreading
+    - The function returns the NEW lambda each iteration (it replaces
+      DREAMPlace's default multiplicative ramp: λ *= ~1.05 per step while
+      HPWL improves)
+    - Too-aggressive growth: cells over-spread early, wirelength suffers,
+      risk of divergence; too-slow growth: overflow stalls above the 0.07
+      stop criterion and placement never converges
+    - overflow: fraction of bins over-density (starts ~1.0, must reach 0.07)
+    - overflow_history: overflow at all previous calls (detect plateaus)
+    - gradient_norm: L2 norm of the position gradient (detect stagnation)
+    - current_lambda: the present weight — return values are absolute, not
+      multipliers
+
+    Known techniques:
+    - Multiplicative ramp (current baseline, matches DREAMPlace default)
+    - Overflow-proportional control: grow λ faster while overflow is high,
+      back off as it approaches the stop criterion
+    - Plateau detection: boost λ when overflow_history flatlines
+    - Gradient-norm coupling: slow λ growth when gradients are large
+    - Bounded growth-rate clamps to avoid divergence
+
+    Key insight: λ growth rate IS the spreading speed. The default ramp is
+    blind to the actual overflow trajectory; an adaptive schedule can spread
+    exactly as fast as the wirelength term tolerates.
+
+    The function signature MUST be preserved exactly. Only modify the body.
+    Return value must be a positive finite float (typically within
+    [0.1x, 20x] of current_lambda per step; absolute, not a multiplier).
+    Do NOT add new imports. Do NOT add file I/O or external calls.
+
+  user_message_template: |
+    Current program:
+    ```python
+    {current_program}
+    ```
+
+    Current performance: normalized_hpwl = {score_display}
+    Best so far: normalized_hpwl = {best_score_display}
+
+    Generate an improved lambda_schedule function that reduces the HPWL.
+    Think about what the current schedule might be doing wrong and propose
+    a targeted improvement. Return only the modified Python function.
+
+# Logging
+output:
+  results_dir: experiments/exp02_density_schedule/evolution_runs/
+  save_all_programs: true
+  checkpoint_interval: 25
