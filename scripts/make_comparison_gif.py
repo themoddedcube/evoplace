@@ -104,7 +104,7 @@ def _capture_field_maps(model, pos_t, want_all):
 
 
 def capture_run(program_path, bench_dir, out_dir, seed, interval,
-                max_iterations, fields="none"):
+                max_iterations, fields="none", hook="gamma"):
     """Run a placement, capturing (iteration, x, y) snapshots, field maps,
     and the gamma trace. Returns (snapshots, field_snaps, gamma_trace,
     netlist, result)."""
@@ -146,15 +146,29 @@ def capture_run(program_path, bench_dir, out_dir, seed, interval,
                 net2pin_start=np.asarray(placedb.flat_net2pin_start_map, dtype=np.int64),
             )
 
-    gamma_trace = []  # (iteration, gamma, overflow)
-    schedule_fn = None
+    gamma_trace = []  # (iteration, schedule value, overflow)
+    run_kwargs = {}
     if program_path is not None:
-        inner = load_evolved_function(str(program_path), "gamma_schedule")
+        if hook == "lambda":
+            inner = load_evolved_function(str(program_path), "lambda_schedule")
 
-        def schedule_fn(iteration, total_iterations, overflow, hpwl_history):
-            g = inner(iteration, total_iterations, overflow, hpwl_history)
-            gamma_trace.append((int(iteration), float(g), float(overflow)))
-            return g
+            def schedule_fn(iteration, overflow, overflow_history,
+                            gradient_norm, current_lambda):
+                lam = inner(iteration, overflow, overflow_history,
+                            gradient_norm, current_lambda)
+                gamma_trace.append((int(iteration), float(lam), float(overflow)))
+                return lam
+
+            run_kwargs["lambda_schedule_fn"] = schedule_fn
+        else:
+            inner = load_evolved_function(str(program_path), "gamma_schedule")
+
+            def schedule_fn(iteration, total_iterations, overflow, hpwl_history):
+                g = inner(iteration, total_iterations, overflow, hpwl_history)
+                gamma_trace.append((int(iteration), float(g), float(overflow)))
+                return g
+
+            run_kwargs["gamma_schedule_fn"] = schedule_fn
 
     orig_plot = NonLinearPlace.NonLinearPlace.plot
     orig_build = rp.build_dreamplace_params
@@ -169,8 +183,8 @@ def capture_run(program_path, bench_dir, out_dir, seed, interval,
     rp.build_dreamplace_params = build_with_plot
     try:
         result = rp.run_placement(
-            bench_dir, out_dir, gamma_schedule_fn=schedule_fn,
-            max_iterations=max_iterations, seed=seed,
+            bench_dir, out_dir, max_iterations=max_iterations, seed=seed,
+            **run_kwargs,
         )
     finally:
         NonLinearPlace.NonLinearPlace.plot = orig_plot
@@ -293,7 +307,7 @@ def render_surface_gif(field_snaps, key, out_path, zlabel, fps):
 
 
 def render_comparison_gif(snap_e, snap_d, hp_e, hp_d, gamma_by_iter, nl,
-                          res_e, res_d, bench, seed, out, fps):
+                          res_e, res_d, bench, seed, out, fps, symbol="γ"):
     n_frames = max(len(snap_e), len(snap_d))
     final_ratio = res_e.metrics["hpwl"] / res_d.metrics["hpwl"]
     images = []
@@ -311,8 +325,8 @@ def render_comparison_gif(snap_e, snap_d, hp_e, hp_d, gamma_by_iter, nl,
         hd = hp_d[min(f, len(hp_d) - 1)][1]
         g_now = gamma_by_iter.get(e[0])
         draw_placement(ax_e, e[1], e[2], nl,
-                       f"EvoPlace schedule — HPWL {he:.3e}"
-                       + (f"  γ={g_now:.2f}" if g_now is not None else ""),
+                       f"EvoPlace {symbol} schedule — HPWL {he:.3e}"
+                       + (f"  {symbol}={g_now:.3g}" if g_now is not None else ""),
                        e[0])
         draw_placement(ax_d, d[1], d[2], nl,
                        f"DREAMPlace default — HPWL {hd:.3e}", d[0])
@@ -330,7 +344,7 @@ def render_comparison_gif(snap_e, snap_d, hp_e, hp_d, gamma_by_iter, nl,
         ax_m.legend(fontsize=7, loc="upper right")
         delta = (1 - he / hd) * 100 if hd else 0.0
         fig.suptitle(
-            f"{bench} (seed {seed}) — evolved vs default γ schedule   "
+            f"{bench} (seed {seed}) — evolved vs default {symbol} schedule   "
             f"current Δ {delta:+.2f}%   final Δ {(1 - final_ratio) * 100:+.2f}%",
             fontsize=11)
         images.append(fig_to_image(fig))
@@ -371,6 +385,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--program", default=None,
                     help="evolved program; omit for single-run showcase mode")
+    ap.add_argument("--hook", choices=["gamma", "lambda"], default="gamma",
+                    help="which schedule slot --program provides")
     ap.add_argument("--benchmark", default="fft_1")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--interval", type=int, default=25)
@@ -394,7 +410,7 @@ def main():
         print("Running evolved schedule ...")
         snap_e, fields_e, gtrace, nl, res_e = capture_run(
             Path(args.program), bench_dir, tmp / "evolved", args.seed,
-            args.interval, args.max_iterations, args.fields)
+            args.interval, args.max_iterations, args.fields, hook=args.hook)
         print(f"  {len(snap_e)} frames, final HPWL {res_e.metrics['hpwl']:.4e}")
         print("Running default schedule ...")
         snap_d, _, _, nl_d, res_d = capture_run(
@@ -408,7 +424,8 @@ def main():
         render_comparison_gif(snap_e, snap_d, hp_e, hp_d,
                               dict((it, g) for it, g, _ in gtrace), nl,
                               res_e, res_d, args.benchmark, args.seed,
-                              out, args.fps)
+                              out, args.fps,
+                              symbol=("λ" if args.hook == "lambda" else "γ"))
         field_snaps = fields_e
     else:
         print("Running default schedule (showcase mode) ...")
