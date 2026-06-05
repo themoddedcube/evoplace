@@ -519,3 +519,19 @@ shifts to Exp 3 (init — their strongest lever, and ours can be net-driven
 GNN warm-init rather than their statistical heuristics), Exp 2 restructured
 as breadth-first + multi-design fitness + vision-in-the-loop reflection.
 Also: PAPER must cite 2504.17801 + 2603.28733; project rename likely.
+
+## 2026-06-05 — Deep research: "what makes a better placer" (RESEARCH.md)
+
+Ran a 6-angle, 108-agent deep-research sweep with 3-vote adversarial
+verification (117 claims → 25 verified → 20 confirmed, 5 killed). Full
+synthesis in RESEARCH.md. Bottom line: schedule/optimizer/throughput work
+doesn't move QoR anywhere in the literature (matches our <0.5% result);
+verified levers are (1) direct differentiable routability/timing objectives
+in the GP loop (RoutePlacer 13-16% overflow multi-seed; differentiable STA
+"free timing"), (2) structure injection (DG-RePlAce), (3) init (~1% honest
+avg, macro-heavy only). RL macro placement confirmed non-replicating.
+Single-seed reporting confirmed as the field-wide hazard — our protocol is
+ahead of practice. Recommended next lever: in-loop differentiable
+routability (fits the timing_loss-style hook shape; evolvable penalty form;
+requires ISPD2011/DAC2012 benchmarks). Spark-unique-capability axis (d) and
+legalization/DP gap remain unevidenced — flagged as open questions.
