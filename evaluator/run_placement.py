@@ -53,11 +53,15 @@ def load_dreamplace():
     install_root = dreamplace_root / "install"
     if (install_root / "dreamplace").exists():
         dreamplace_root = install_root
+    # DREAMPlace mixes flat intra-package imports (import Params) with
+    # package imports (import dreamplace.ops...), so both the root and the
+    # package dir must be importable — same layout Placer.py runs with.
     sys.path.insert(0, str(dreamplace_root))
+    sys.path.insert(0, str(dreamplace_root / "dreamplace"))
     try:
-        import dreamplace.Params as Params
-        import dreamplace.PlaceDB as PlaceDB
-        import dreamplace.NonLinearPlace as NonLinearPlace
+        import Params
+        import PlaceDB
+        import NonLinearPlace
         return Params, PlaceDB, NonLinearPlace
     except ImportError as e:
         raise RuntimeError(

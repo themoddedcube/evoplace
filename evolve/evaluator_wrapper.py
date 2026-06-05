@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 # Benchmark to use for evolution fitness (small = fast iteration)
 EVOLUTION_BENCHMARK = "fft_1"
-BENCHMARK_ROOT = PROJECT_ROOT / "benchmarks" / "ispd2015_no_region"
+# Flat layout: benchmarks/<circuit>/ — same as evaluator.benchmark_suite
+BENCHMARK_ROOT = PROJECT_ROOT / "benchmarks"
 
 # DREAMPlace baseline HPWL on fft_1 (set after Exp 0 baseline run)
 # Update this after running experiments/exp00_baseline/run.py

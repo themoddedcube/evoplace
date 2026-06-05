@@ -24,3 +24,5 @@ click>=8.0.0
 # OpenEvolve (install separately):
 # pip install git+https://github.com/algorithmicsuperintelligence/openevolve.git
 pytest>=7.0.0
+torch_optimizer  # DREAMPlace NonLinearPlace dep
+ncg_optimizer    # DREAMPlace NonLinearPlace dep
