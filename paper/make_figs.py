@@ -121,3 +121,33 @@ fig.savefig(FIGS / "fig_schedules.pdf")
 plt.close(fig)
 
 print("figures written:", sorted(p.name for p in FIGS.glob("*.pdf")))
+
+# --------------------------------------------------------------- Fig 4
+# Lambda guard-branch ablation: paired ratios per design (NOTES 2026-06-05)
+LAM = {
+    "fft_1": [0.98999, 0.99024, 0.99004, 0.98637, 0.98948],
+    "fft_2": [0.90820, 0.92117, 0.91732, 0.90257, 0.91551],
+    "matrix_mult_1": [0.98294, 0.98277],
+    "des_perf_1": [0.99053, 0.99034],
+}
+fig, ax = plt.subplots(figsize=(3.45, 2.1))
+ax.axhspan(1 - 3 * SIGMA, 1 + 3 * SIGMA, color="0.88", zorder=0,
+           label=r"$\pm3\sigma$ noise band")
+ax.axhline(1.0, color="0.4", lw=0.7, ls="--")
+for i, (name, ratios) in enumerate(LAM.items()):
+    r = np.asarray(ratios)
+    ax.scatter([i] * len(r) + np.linspace(-0.08, 0.08, len(r)), r,
+               s=12, c="#1f77b4", alpha=0.65, zorder=3, lw=0)
+    mean = r.mean()
+    ci = 1.96 * r.std(ddof=1) / np.sqrt(len(r)) if len(r) > 1 else 0
+    ax.errorbar(i + 0.22, mean, yerr=ci, fmt="D", ms=4, c="#d62728",
+                capsize=2.5, lw=1, zorder=4,
+                label="mean ± 95% CI" if i == 0 else None)
+ax.set_xticks(range(len(LAM)), [k.replace("_", "\\_") if False else k
+                                for k in LAM], fontsize=7)
+ax.set_ylabel("HPWL ratio vs.\ndefault $\\lambda$ update")
+ax.set_ylim(0.895, 1.012)
+ax.legend(loc="lower left", framealpha=0.9, fontsize=6.5)
+fig.savefig(FIGS / "fig_lambda.pdf")
+plt.close(fig)
+print("fig_lambda.pdf written")

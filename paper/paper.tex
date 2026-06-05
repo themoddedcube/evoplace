@@ -8,7 +8,7 @@
 
 \graphicspath{{figs/}}
 
-\title{How Much Headroom Do Smoothing Schedules Have?\\
+\title{How Much Headroom Do Placement Schedules Have?\\
 A Noise-Calibrated Study of LLM-Evolved Schedules\\
 in Differentiable VLSI Placement}
 
@@ -37,18 +37,26 @@ baselines that rejects poor candidates at $13\times$ lower cost than a full
 placement; and (iii)~a \emph{noise-calibrated evaluation protocol} that
 measures the single-seed fitness noise floor ($\sigma\!\approx\!0.15\%$
 normalized HPWL), gates every campaign on hook-liveness probes, and
-confirms final rankings with paired multi-seed re-evaluation. Across a
-200-iteration evolution campaign on ISPD~2015 standard-cell designs, the
-search produced exactly one statistically real improvement:
-$+0.315\%\pm0.09\%$ (SEM) HPWL over the tuned DREAMPlace default---and the
-single-seed ranking \emph{inverted} under multi-seed re-evaluation, with
-the apparent best candidate revealed as pure seed luck. We conclude that
-the $\gamma$-schedule headroom on converged standard-cell placement is
-bounded near $0.3\%$, an order of magnitude below the single-seed
-``improvements'' that an uncalibrated search happily reports. Our protocol
-generalizes to any stochastic-EDA search loop, and our negative result
-quantitatively corroborates component-importance orderings reported in
-concurrent work.
+confirms final rankings with paired multi-seed re-evaluation. Two complete campaigns
+on ISPD~2015 standard-cell designs yield an instructive contrast. The
+$\gamma$ (wirelength-smoothing) campaign produced exactly one
+statistically real improvement over 200 iterations---$+0.315\%\pm0.09\%$
+(SEM)---and its single-seed ranking \emph{inverted} under multi-seed
+re-evaluation, bounding the $\gamma$-search headroom near $0.3\%$. The
+$\lambda$ (density-weight) campaign found its result before evolution
+began: constructing a default-matched seed exposed that DREAMPlace's
+HPWL-feedback guard in the density-weight update \emph{actively hurts}
+these designs---removing it wins $1$--$9\%$ HPWL at matched final density,
+$14/14$ paired seeds across four designs, a generalizing improvement found
+by \emph{audit}, not search. Evolution on top of the audited seed found
+nothing: an unguarded HPWL fitness was reward-hacked within nine
+iterations (candidates scored well by refusing to spread cells), and after
+adding a density gate, zero of 200 candidates beat the seed. We conclude
+that schedule \emph{search} offers noise-level headroom, while
+\emph{auditing} the hand-tuned adaptive heuristics it competes against
+does not---and that a noise-calibrated, gate-checked protocol is what
+separates both findings from the artifacts an uncalibrated loop happily
+reports.
 \end{abstract}
 
 \section{Introduction}
@@ -88,11 +96,21 @@ $\gamma$-schedule evolution. Our contributions are:
         hook-liveness probes, and confirm all final claims by paired
         multi-seed re-evaluation against the default schedule on identical
         (benchmark, seed) pairs.
-  \item \textbf{A quantitative boundary result.} Across 200 evolution
-        iterations, the best schedule that survives multi-seed scrutiny
-        improves HPWL by $0.315\%\pm0.09\%$; the single-seed winner is
-        revealed as noise. We conclude that $\gamma$-schedule headroom on
-        converged standard-cell placement is bounded near $0.3\%$.
+  \item \textbf{A quantitative boundary result for $\gamma$.} Across 200
+        evolution iterations, the best schedule that survives multi-seed
+        scrutiny improves HPWL by $0.315\%\pm0.09\%$; the single-seed
+        winner is revealed as noise.
+  \item \textbf{An audit finding larger than the search.} Removing the
+        HPWL-feedback guard from DREAMPlace's density-weight update
+        improves HPWL by $1$--$9\%$ at matched final density ($14/14$
+        paired seeds, four designs) --- discovered through the protocol's
+        own parity gate, not through evolution.
+  \item \textbf{A live characterization of fitness under-specification.}
+        With an HPWL-only fitness, $\lambda$-schedule evolution
+        reward-hacks within nine iterations by suppressing cell spreading;
+        with an explicit density gate, the same search finds nothing in
+        200 iterations. Every metric a candidate can influence requires a
+        gate.
 \end{itemize}
 
 We deliberately report a bounded-headroom (negative) result with full
@@ -321,9 +339,71 @@ default on fresh seeds; the evolved schedule won by $+0.18\%$ and
 $+0.27\%$ respectively---both within one standard error of the confirmed
 $+0.315\%$ estimate, an incidental out-of-protocol replication.
 
+\section{The $\lambda$ Campaign: Audit Beats Search}
+\label{sec:lambda}
+
+\subsection{An approximate seed and a $7\sigma$ gate flag}
+DREAMPlace's density-weight update multiplies $\lambda$ by
+$\mu = U\cdot\max(0.9999^{k},0.98)$ (with $U{=}1.05$) while HPWL improves
+between evaluations, but shrinks $\mu$ through a feedback guard when HPWL
+worsens. Our hook interface exposes (iteration, overflow, overflow
+history, gradient norm, current $\lambda$) but not the HPWL deltas the
+guard consumes, so a default-matched seed is not expressible; we seeded
+with the improving-branch update applied \emph{unconditionally}. The
+parity gate---which expects a default-matched seed to score
+$1.0\pm0.01$---instead returned $0.9896$, a ${\sim}7\sigma$ deviation.
+Under the protocol this is a stop condition: the discrepancy must be
+explained before any search runs.
+
+\subsection{Paired verification: the guard hurts}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_lambda.pdf}
+\caption{Guard-branch ablation: paired HPWL ratios vs.\ the default
+$\lambda$ update at identical (design, seed), with matched final overflow.
+All 14 pairs improve; the effect is design-heterogeneous (${\sim}1\%$ on
+three designs, ${\sim}9\%$ on \texttt{fft\_2}).}
+\label{fig:lambda}
+\end{figure}
+Paired re-evaluation (Fig.~\ref{fig:lambda}) attributes the deviation to
+the guard itself: the unconditional ramp wins on \emph{every} pair ---
+\texttt{fft\_1} $-1.0\%$ (5 seeds), \texttt{fft\_2} $-8.7\%$ (5 seeds),
+\texttt{matrix\_mult\_1} $-1.7\%$ and \texttt{des\_perf\_1} $-1.0\%$
+(2 seeds each) --- with final overflow matched to the default run in every
+case (both flows reach the same density quality; the ablated schedule
+reaches it at lower wirelength). Unlike the per-case-evolved components in
+the literature, which lose an order of magnitude when generalized, this
+single fixed change transfers across all four designs tested. We emphasize
+the provenance: this is an \emph{ablation of a hand-tuned heuristic},
+surfaced by a calibration gate, confirmed by the paired protocol ---
+search played no role.
+
+\subsection{Reward hacking and the density gate}
+The initial $\lambda$ evolution run used the same HPWL-only fitness as the
+$\gamma$ campaign. Within nine iterations a mutant scored an apparent
+$-2.2\%$ ``improvement'' --- at final overflow $0.35$, five times the stop
+criterion: the schedule simply suppressed the density ramp, leaving cells
+clustered and wirelength artificially low. The $\gamma$ parameterization
+cannot express this failure mode (smoothing does not control spreading);
+the $\lambda$ parameterization can, and the search found it almost
+immediately. We added a density gate (reject any candidate whose final
+mean overflow exceeds $0.12$; defaults end at $0.07$--$0.085$) and
+restarted. The contrast in search dynamics is stark: the ungated run
+``improved'' repeatedly --- every gain a hack --- while the gated run
+never improved at all.
+
+\subsection{Gated evolution finds nothing}
+Under the gate, 200 iterations of $\lambda$ evolution produced 150
+candidates scored $-\infty$ (cascade or gate) and 49 survivors, all
+$9$--$220\%$ worse than the seed; the unmodified seed remained the best
+program. Combined with the $\gamma$ bound, the campaign-level conclusion
+is symmetric and clean: \textbf{schedule search is noise-bounded in both
+spaces; the only real win came from auditing the default's own adaptive
+logic.}
+
 \section{Discussion}
 
-\textbf{Why the headroom is small.} Three compounding causes. (i)~The
+\textbf{Why the search headroom is small.} Three compounding causes. (i)~The
 default schedule is already overflow-adaptive and extensively tuned; the
 remaining gain from trajectory shaping of an optimizer that converges to
 the same basin is intrinsically limited. (ii)~Standard-cell ISPD~2015
@@ -345,6 +425,18 @@ relative to any evolution campaign (here, ${\sim}70$ extra placements)
 and catches both failure modes we encountered in practice---dead code
 paths and noise-fitting---before they reach a results table.
 
+\textbf{Search vs.\ audit.} The campaign's most useful contrast is
+methodological. LLM search over schedule space, properly gated, recovered
+at most $0.3\%$; a single ablation of a default heuristic, surfaced by a
+calibration gate, recovered $1$--$9\%$ and generalized. Hand-tuned
+adaptive heuristics inside mature placers have never been systematically
+audited with variance-qualified methods, and our result suggests that
+audit --- cheap, exhaustive, statistically grounded --- is currently a
+better use of evaluation budget than search. The reward-hack episode adds
+the operational corollary: any fitness a candidate can influence along an
+unmeasured axis \emph{will} be exploited, and gates must be specified
+with the objective, not patched in afterward.
+
 \textbf{Consistency with concurrent work.} Yao et
 al.~\cite{yao2025evolution} rank initialization $\gg$ optimizer $>$
 preconditioner by both evolvability and gain, and report only
@@ -356,17 +448,23 @@ qualified with variance their study lacks.
 \section{Conclusion}
 
 We built a measurement-first harness for LLM-guided evolution of
-DREAMPlace schedules and ran a complete, noise-calibrated campaign of
-$\gamma$-schedule evolution on ISPD~2015 standard-cell designs. The
-campaign's headline is a bound, not a breakthrough: after 200 iterations,
-exactly one schedule survives paired multi-seed scrutiny, at
-$+0.315\%\pm0.09\%$ HPWL versus the tuned default---while the single-seed
-ranking inverted, the apparent winner dissolving into seed noise. The
-result quantifies the headroom of a previously unexamined component class,
-corroborates component-importance orderings reported concurrently, and
-demonstrates a lightweight evaluation protocol---noise-floor measurement,
-liveness gating, paired multi-seed confirmation with a calibration
-row---that any stochastic-EDA search loop can adopt.
+DREAMPlace schedules and ran two complete, noise-calibrated campaigns on
+ISPD~2015 standard-cell designs. The $\gamma$ campaign yields a bound:
+one real improvement of $+0.315\%\pm0.09\%$ in 200 iterations, with the
+single-seed ranking inverting under paired re-evaluation. The $\lambda$
+campaign yields a discovery and a second bound: the default density-weight
+update's HPWL-feedback guard actively hurts ($1$--$9\%$ at matched
+density, $14/14$ paired seeds, four designs) --- found by the protocol's
+parity gate, not by search --- while gated evolution atop the fix found
+nothing further, after an ungated fitness was reward-hacked within nine
+iterations. Together the campaigns quantify a previously unexamined
+component class from both directions: schedule \emph{search} is
+noise-bounded, schedule \emph{audit} is not. The enabling contribution is
+the protocol --- noise-floor measurement, liveness and parity gates,
+objective gates, and paired multi-seed confirmation with calibration
+rows --- which caught a rank inversion, a non-parity seed worth $1$--$9\%$,
+and a live reward hack, in a field where any of the three would normally
+have shipped as a result.
 
 \section*{Acknowledgments}
 Experiments were carried out on an NVIDIA DGX Spark (GB10). The campaign's
