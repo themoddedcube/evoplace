@@ -37,62 +37,75 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def load_dreamplace():
-    """Import DreamPlace modules from the vendor submodule."""
+    """Import DreamPlace modules from the vendor submodule.
+
+    Prefers the CMake install tree (vendor/dreamplace/install), which contains
+    both the Python sources and the compiled ops. The bare source tree has no
+    compiled ops and would shadow the install dir, so it is only used as a
+    fallback (e.g. stub-development machines without a build).
+    """
     dreamplace_root = PROJECT_ROOT / "vendor" / "dreamplace"
     if not dreamplace_root.exists():
         raise RuntimeError(
             f"DreamPlace not found at {dreamplace_root}. "
             "Run: git submodule update --init vendor/dreamplace"
         )
+    install_root = dreamplace_root / "install"
+    if (install_root / "dreamplace").exists():
+        dreamplace_root = install_root
     sys.path.insert(0, str(dreamplace_root))
     try:
-        import dreamplace.BasicPlace as BasicPlace
+        import dreamplace.Params as Params
         import dreamplace.PlaceDB as PlaceDB
-        return BasicPlace, PlaceDB
+        import dreamplace.NonLinearPlace as NonLinearPlace
+        return Params, PlaceDB, NonLinearPlace
     except ImportError as e:
         raise RuntimeError(
             f"Failed to import DreamPlace: {e}. "
-            "Did you build it? Run: cd vendor/dreamplace && python setup.py build_ext --inplace"
+            "Did you build it? See README 'Manual Build' (cmake + make install)."
         ) from e
 
 
 def build_dreamplace_params(
+    Params,
     benchmark_dir: Path,
     output_dir: Path,
-    gamma_schedule_fn: Optional[Callable] = None,
-    lambda_schedule_fn: Optional[Callable] = None,
-    init_positions_fn: Optional[Callable] = None,
-    timing_loss_fn: Optional[Callable] = None,
     max_iterations: int = 2000,
-) -> Dict[str, Any]:
+    seed: int = 42,
+):
     """
-    Build the DreamPlace parameter dict.
+    Build the DreamPlace Params object from the benchmark's JSON config.
 
-    Pluggable algorithm components are injected here as callables.
-    DreamPlace reads the JSON config; we write a temp config and patch
-    Python-level callbacks via the dreamplace_ext hooks module.
+    Schedule/init/timing callables are NOT passed here — they are injected
+    via the dreamplace_ext hooks module, which the patched PlaceObj.py
+    consults each iteration.
     """
     # Find the .json config file in the benchmark dir
-    json_files = list(benchmark_dir.glob("*.json"))
+    json_files = sorted(benchmark_dir.glob("*.json"))
     if not json_files:
         raise FileNotFoundError(f"No .json config found in {benchmark_dir}")
     base_config_path = json_files[0]
 
-    with open(base_config_path) as f:
-        params = json.load(f)
+    params = Params.Params()
+    params.load(str(base_config_path))
 
-    params["result_dir"] = str(output_dir)
-    params["gpu"] = 1
-    params["num_threads"] = 8
-    params["global_place_stages"] = [
-        {
-            "num_bins_x": 512,
-            "num_bins_y": 512,
-            "iteration": max_iterations,
-            "learning_rate": 0.01,
-            "stop_overflow": 0.07,
-        }
-    ]
+    # Resolve config-relative input paths against the project root so runs
+    # work regardless of the caller's cwd.
+    def _resolve(p: str) -> str:
+        return p if os.path.isabs(p) else str(PROJECT_ROOT / p)
+
+    for key in ("def_input", "verilog_input", "aux_input", "lib_input",
+                "sdc_input", "early_lib_input", "late_lib_input"):
+        val = getattr(params, key, None)
+        if isinstance(val, str) and val:
+            setattr(params, key, _resolve(val))
+    if getattr(params, "lef_input", None):
+        params.lef_input = [_resolve(p) for p in params.lef_input]
+
+    params.result_dir = str(output_dir)
+    params.random_seed = seed
+    # Override iteration count only; keep the config's bins / lr / optimizer.
+    params.global_place_stages[0]["iteration"] = max_iterations
 
     return params
 
@@ -235,7 +248,7 @@ def run_placement(
 
     # Real DreamPlace path (requires built vendor/dreamplace)
     try:
-        BasicPlace, PlaceDB = load_dreamplace()
+        Params, PlaceDB, NonLinearPlace = load_dreamplace()
     except RuntimeError:
         logger.warning("DreamPlace not available; falling back to stub")
         return run_placement_stub(
@@ -244,7 +257,8 @@ def run_placement(
             max_iterations, seed
         )
 
-    # Inject custom hooks before running
+    # Inject custom hooks before running. The patched PlaceObj.py in the
+    # DREAMPlace fork consults these each iteration.
     from dreamplace_ext import hooks
     hooks.set_gamma_schedule(gamma_schedule_fn)
     hooks.set_lambda_schedule(lambda_schedule_fn)
@@ -252,37 +266,65 @@ def run_placement(
     hooks.set_timing_loss(timing_loss_fn)
 
     params = build_dreamplace_params(
-        benchmark_dir, output_dir,
-        gamma_schedule_fn, lambda_schedule_fn,
-        init_positions_fn, timing_loss_fn,
-        max_iterations
+        Params, benchmark_dir, output_dir, max_iterations, seed
     )
 
     t0 = time.perf_counter()
     try:
         db = PlaceDB.PlaceDB()
         db(params)
-        placer = BasicPlace.BasicPlace(params, db)
-        metrics_raw = placer(params, db)
+        placer = NonLinearPlace.NonLinearPlace(params, db, None)
+        learning_rate = params.global_place_stages[0]["learning_rate"]
+        all_metrics = placer(params, db, learning_rate)
         runtime = time.perf_counter() - t0
         divergence = hooks.get_divergence_count()
-        hooks.reset()
+
+        # all_metrics is a (possibly nested) list of EvalMetrics; the last
+        # entry carrying an HPWL is the final state of the run.
+        def _iter_metrics(m):
+            if isinstance(m, (list, tuple)):
+                for x in m:
+                    yield from _iter_metrics(x)
+            elif m is not None:
+                yield m
+
+        final = None
+        for m in _iter_metrics(all_metrics):
+            if getattr(m, "hpwl", None) is not None:
+                final = m
+        if final is None:
+            raise RuntimeError("DreamPlace returned no HPWL metrics")
+
+        overflow = getattr(final, "goverflow", None)
+        if overflow is None:
+            overflow = getattr(final, "overflow", None)
+        mean_overflow = (
+            float(np.mean([float(v) for v in np.atleast_1d(
+                overflow.cpu().numpy() if hasattr(overflow, "cpu") else overflow)]))
+            if overflow is not None else 1.0
+        )
 
         metrics = {
-            "hpwl": float(metrics_raw.get("hpwl", 0)),
-            "mean_overflow": float(metrics_raw.get("overflow", 0)),
-            "top5_overflow": float(metrics_raw.get("top5_overflow", 0)),
-            "tns_proxy": float(metrics_raw.get("tns", 0)),
+            "hpwl": float(final.hpwl),
+            "mean_overflow": mean_overflow,
+            "top5_overflow": 0.0,   # not produced by DREAMPlace; kept for schema stability
+            "tns_proxy": 0.0,       # timing-driven runs not enabled yet (Exp 4)
         }
-        return PlacementResult(metrics, runtime, divergence, converged=True)
+        converged = mean_overflow <= float(getattr(params, "stop_overflow", 0.07)) + 1e-3
+        result = PlacementResult(metrics, runtime, divergence, converged=converged)
+        with open(output_dir / "result.json", "w") as f:
+            json.dump(result.to_dict(), f, indent=2)
+        return result
 
     except Exception as e:
         runtime = time.perf_counter() - t0
-        logger.error(f"DreamPlace failed: {e}")
+        logger.exception(f"DreamPlace failed: {e}")
         return PlacementResult(
             {"hpwl": float("inf"), "mean_overflow": 1.0, "top5_overflow": 1.0, "tns_proxy": float("inf")},
             runtime, divergence_events=99, converged=False
         )
+    finally:
+        hooks.reset()
 
 
 # ---------------------------------------------------------------------------

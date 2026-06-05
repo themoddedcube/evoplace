@@ -29,6 +29,14 @@ benchmarks/ispd2015/
 benchmarks/ispd2019/
 benchmarks/iccad2015/
 benchmarks/nangate45/
+# Per-circuit benchmark data (LEF/DEF/netlist) is too large to commit;
+# the per-circuit DREAMPlace .json configs ARE committed.
+benchmarks/**/*.lef
+benchmarks/**/*.def
+benchmarks/**/*.v
+benchmarks/**/*.constraints
+benchmarks/**/*.lib
+benchmarks/**/*.sdc
 !benchmarks/README.md
 
 # DreamPlace build artifacts (submodule, but not build outputs)

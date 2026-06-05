@@ -96,7 +96,7 @@ evoplace/
 ├── graphs/                 # Auto-generated figures (convergence, HPWL bars, Pareto)
 ├── benchmarks/             # ISPD 2015 / ICCAD 2015 circuits (not committed — see below)
 ├── vendor/dreamplace/      # DREAMPlace 4.0 fork (git submodule)
-├── scripts/setup_wsl.sh    # One-command WSL2 build + benchmark download
+├── scripts/                # Utilities (figure generation)
 ├── NOTES.md                # Running research journal
 └── PAPER_DRAFT.md          # In-progress paper sections
 ```
@@ -111,33 +111,33 @@ evoplace/
 - Python 3.10+
 - CMake ≥ 3.14, GCC ≥ 11, Boost ≥ 1.55
 - PyTorch ≥ 2.0 (CPU sufficient for development; GPU required for convergent runs)
-- CUDA 11.8+ for GPU placement (optional until DGX/GPU available)
+- CUDA 12.x toolkit for GPU placement (tested: CUDA 12.6 on RTX 3060, sm_86)
 - [Claude Code CLI](https://claude.ai/code) for LLM-guided evolution (no API key needed)
 
-### Automated Setup (WSL2)
+### GPU Setup (WSL2 / Ubuntu 24.04)
 
-The `scripts/setup_wsl.sh` script handles all phases. Each phase can be run independently:
+The NVIDIA *driver* lives on the Windows side (exposed via `/usr/lib/wsl/lib`) — never install a Linux driver inside WSL. Only the CUDA *toolkit* is needed:
 
 ```bash
-# Phase 1: system packages (requires sudo)
-sudo bash scripts/setup_wsl.sh apt
+# 1. System packages
+sudo apt-get update && sudo apt-get install -y \
+    cmake libboost-all-dev zlib1g-dev libomp-dev bison flex \
+    python3.12-venv python3-dev
 
-# Phase 2: Python venv + PyTorch at ~/evoplace_venv
-bash scripts/setup_wsl.sh python
+# 2. CUDA toolkit 12.6 (toolkit only — NOT the `cuda` metapackage, which pulls a driver)
+wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt-get update && sudo apt-get install -y cuda-toolkit-12-6
+export PATH=/usr/local/cuda-12.6/bin:$PATH
 
-# Phase 3: build DREAMPlace (~10–15 min)
-bash scripts/setup_wsl.sh build
-
-# Phase 4: download ISPD 2015 benchmarks + generate JSON configs
-bash scripts/setup_wsl.sh benchmarks
-
-# Phase 5: smoke test
-bash scripts/setup_wsl.sh test
+# 3. Python venv + PyTorch (wheel CUDA version must match the toolkit: cu126 ↔ 12.6)
+python3 -m venv ~/evoplace_venv
+source ~/evoplace_venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cu126
+pip install -r requirements.txt
 ```
 
-Or all at once: `sudo bash scripts/setup_wsl.sh all`
-
-> **Note on paths with spaces**: DREAMPlace's C++ parser splits file paths on whitespace. The setup script creates a `~/evoplace` symlink to avoid this if your project directory contains spaces.
+> **Note on paths with spaces**: DREAMPlace's C++ parser splits file paths on whitespace. If your project directory contains spaces, create a symlink (e.g. `ln -s "/path/with spaces/evoplace" ~/evoplace`) and work through it.
 
 ### Manual Build (any Linux)
 
@@ -145,10 +145,9 @@ Or all at once: `sudo bash scripts/setup_wsl.sh all`
 # 1. Install system deps
 sudo apt-get install -y cmake libboost-all-dev zlib1g-dev libomp-dev bison flex
 
-# 2. Init DREAMPlace submodules
+# 2. Init DREAMPlace submodules (or clone evoplace with --recurse-submodules)
 cd vendor/dreamplace
-git submodule update --init thirdparty/pybind11 thirdparty/Limbo \
-    thirdparty/OpenTimer thirdparty/munkres-cpp thirdparty/cub
+git submodule update --init --recursive
 
 # 3. Build (detect PyTorch ABI automatically)
 CXX_ABI=$(python3 -c "import torch; print(1 if torch.compiled_with_cxx11_abi() else 0)")
@@ -156,10 +155,18 @@ mkdir -p ~/dreamplace_build && cd ~/dreamplace_build
 cmake /path/to/evoplace/vendor/dreamplace \
     -DCMAKE_INSTALL_PREFIX=/path/to/evoplace/vendor/dreamplace/install \
     -DCMAKE_CXX_ABI=$CXX_ABI \
-    -DPython_EXECUTABLE=$(which python3)
+    -DPython_EXECUTABLE=$(which python3) \
+    -DCMAKE_CUDA_ARCHITECTURES=8.6   # match your GPU (8.6 = Ampere/RTX 30xx); omit for a fat binary
 make -j$(nproc) && make install
 
-# 4. Download benchmarks
+# 4. IMPORTANT: copy the hook-patched PlaceObj.py into the install dir after
+#    EVERY `make install` (the install dir is gitignored). If skipped, the
+#    schedule hooks silently never fire and every candidate evaluates identically.
+cd /path/to/evoplace
+cp vendor/dreamplace/dreamplace/PlaceObj.py vendor/dreamplace/install/dreamplace/PlaceObj.py
+find vendor/dreamplace/install/dreamplace -name "PlaceObj*.pyc" -delete
+
+# 5. Download benchmarks
 cd /path/to/evoplace/vendor/dreamplace
 python benchmarks/ispd2005_2015.py
 ```
