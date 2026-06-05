@@ -4,6 +4,10 @@
 
 EvoPlace is a research system that applies LLM-guided evolutionary search to automatically discover better algorithmic components for differentiable VLSI placement.
 
+## Honesty, up front
+
+**The evolved schedules ended up only marginally better than DREAMPlace's defaults — +0.315% ± 0.09% HPWL at best — so if you're here for a faster/better placer, this isn't it.** What this repo *is*: a complete, honestly-documented research campaign with some findings we think are worth your time anyway ([Key Findings](#key-findings)).
+
 ---
 
 ### Evolved vs. default γ schedule — `fft_1` (ISPD 2015)
