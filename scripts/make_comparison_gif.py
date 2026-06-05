@@ -265,8 +265,14 @@ def render_surface_gif(field_snaps, key, out_path, zlabel, fps):
     if not snaps:
         print(f"  no {key} frames captured, skipping {out_path}")
         return
-    zmax = max(float(m.max()) for _, m in snaps)
-    zmin = min(float(m.min()) for _, m in snaps)
+    # Cap z at the 99th percentile across all frames: a handful of extreme
+    # bins (initial macro/density spikes) otherwise set the scale and make
+    # the x/y structure we actually care about indistinguishable.
+    all_vals = np.concatenate([m.ravel() for _, m in snaps])
+    zmax = float(np.percentile(all_vals, 99.0))
+    zmin = float(all_vals.min())
+    if zmax <= zmin:
+        zmax = float(all_vals.max())
     nbx, nby = snaps[0][1].shape
     # upstream plots map[x][y] against meshgrid(ys, xs) (see
     # electric_overflow.plot); mgrid keeps axis order consistent
@@ -275,7 +281,7 @@ def render_surface_gif(field_snaps, key, out_path, zlabel, fps):
     for it, m in snaps:
         fig = plt.figure(figsize=(6.4, 5.2), dpi=100)
         ax = fig.add_subplot(projection="3d")
-        ax.plot_surface(xs, ys, m, alpha=0.8, cmap="viridis")
+        ax.plot_surface(xs, ys, np.minimum(m, zmax), alpha=0.8, cmap="viridis")
         ax.set_zlim(zmin, zmax * 1.02)
         ax.set_xlabel("bin y", fontsize=8)
         ax.set_ylabel("bin x", fontsize=8)
