@@ -1,0 +1,7 @@
+rank	program	mean_ratio	std	n	improvement_pct
+1	candidate_0117	0.99685	0.00273	10	+0.315
+2	candidate_0090	1.00014	0.00851	10	-0.014
+3	seed_program	1.00057	0.00735	10	-0.057
+4	candidate_0006	1.02244	0.00589	10	-2.244
+5	candidate_0007	1.06626	0.00464	10	-6.626
+6	candidate_0002	1.07746	0.01232	10	-7.746

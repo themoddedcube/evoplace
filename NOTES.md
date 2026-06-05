@@ -535,3 +535,26 @@ ahead of practice. Recommended next lever: in-loop differentiable
 routability (fits the timing_loss-style hook shape; evolvable penalty form;
 requires ISPD2011/DAC2012 benchmarks). Spark-unique-capability axis (d) and
 legalization/DP gap remain unevidenced — flagged as open questions.
+
+## 2026-06-05 — Exp 1 FINAL: multi-seed re-rank verdict (boundary result confirmed)
+
+Exp 1 completed: 200 iterations, 14 cascade survivors, single-seed best
+0.9956 (candidate_0117). Paired multi-seed re-rank (5 seeds × fft_1/fft_2,
+ratios vs default at identical (bench, seed)):
+
+  1. candidate_0117  0.99685 ±0.00273  → +0.315% (REAL: ~3.7× SEM, but tiny)
+  2. candidate_0090  1.00014 ±0.00851  → noise (was −0.28% single-seed)
+  3. seed_program    1.00057 ±0.00735  → calibration ✓ (protocol validated)
+  4. candidate_0006  1.02244            → 2.2% WORSE
+  5. candidate_0007  1.06626            → 6.6% WORSE
+  6. candidate_0002  1.07746            → 7.7% WORSE
+
+Three of five single-seed "top" candidates were actively bad schedules that
+got lucky once — single-seed ranking at the tail was anti-correlated with
+truth, not merely imprecise. CONCLUSION (campaign boundary result): LLM
+schedule evolution on std-cell ISPD2015 finds at most ~0.3% real HPWL
+improvement (candidate_0117: overflow-driven exponential γ with progress
+envelope), far below useful headroom. Consistent with RESEARCH.md verified
+findings. Campaign closes; next lever per RESEARCH.md is in-loop
+differentiable routability. Full table: experiments/exp01_wl_smoothing/
+multiseed_rerank.tsv.

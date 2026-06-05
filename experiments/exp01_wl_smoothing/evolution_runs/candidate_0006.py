@@ -1,70 +1,41 @@
 import math
 
-
 def gamma_schedule(
     iteration: int,
     total_iterations: int,
     overflow: float,
     hpwl_history: list,
 ) -> float:
-    """
-    WA-WL smoothness schedule: returns γ for the weighted-average wirelength model.
+    """ ... """
+    # progress in [0, 1]
+    t = iteration / max(1, total_iterations)
 
-    γ controls the tradeoff between WL accuracy and gradient smoothness:
-    - High γ (~40): smooth gradients, inaccurate HPWL approximation
-    - Low γ (~0.4): accurate HPWL, but gradients become noisy near convergence
+    # Overflow is the primary driver in DREAMPlace-style placement:
+    # while cells are still overlapping (high overflow) we want large gamma
+    # for smooth gradients; as the layout legalizes (overflow -> 0) we drop
+    # gamma to sharpen the HPWL approximation.
+    of = min(1.0, max(0.0, overflow))
 
-    Args:
-        iteration: current iteration number (0 to total_iterations-1)
-        total_iterations: total planned iterations
-        overflow: current density overflow (0.0 = no overflow, 1.0 = full overflow)
-        hpwl_history: list of HPWL values at previous iterations
+    # Base exponential map from overflow: ~8.0 at high overflow,
+    # ~0.5 near zero overflow. 10^(2*(of-0.2)) gives a smooth sweep.
+    gamma_of = 0.5 * 10.0 ** (2.0 * of)
 
-    Returns:
-        gamma: float in [0.01, 50.0]
-    """
-    # Clamp overflow to a sane range so extreme inputs can't destabilize gamma.
-    ovf = min(1.0, max(0.0, overflow))
+    # Cosine-annealed progress floor so we still cool down even if overflow
+    # stalls on a plateau. Goes from 1.0 (start) to ~0.0 (end).
+    cos_factor = 0.5 * (1.0 + math.cos(math.pi * min(1.0, t)))
+    gamma_progress = 0.5 + 7.5 * cos_factor
 
-    # Overflow-driven base (DREAMPlace family): smooth gradients while cells
-    # are still spread out, sharpening as the layout legalizes.
-    base = 4.0 * 10.0 ** ((ovf - 0.1) * 20.0 / 9.0 - 1.0)
+    # Blend: overflow dominates early, progress takes over as it shrinks.
+    w = of  # weight toward overflow signal when cells still overlap
+    gamma = w * gamma_of + (1.0 - w) * gamma_progress
 
-    # Normalized optimization progress in [0, 1].
-    prog = 0.0
-    if total_iterations > 1:
-        prog = iteration / float(total_iterations - 1)
-        prog = min(1.0, max(0.0, prog))
-
-    # Continuous legality gate: smoothly ramps from ~0 to ~1 as overflow falls
-    # through ~0.10. Replaces the hard 0.15 cutoff so the sharpening turns on
-    # gradually instead of snapping, avoiding gradient discontinuities.
-    legal = 1.0 / (1.0 + math.exp((ovf - 0.10) * 60.0))
-
-    # Late-stage sharpening: once the placement is mostly legal, bias gamma
-    # downward so the WA model tracks true HPWL more closely. The push grows
-    # with progress but is gated by legality so it never destabilizes the
-    # still-spreading early/mid phases. Slightly stronger than the seed because
-    # the smooth gate keeps it safe.
-    sharpen = 1.0 - 0.55 * legal * (prog ** 1.3)
-    gamma = base * sharpen
-
-    # History-driven adaptation: react to the recent HPWL trajectory with
-    # proportional (rather than discrete-step) scaling for smoother control.
+    # Plateau detection: if recent HPWL has stopped improving, nudge gamma
+    # down to refine the approximation and escape the flat region.
     if len(hpwl_history) >= 4:
-        h = hpwl_history[-4:]
-        recent = h[-1]
-        prev = (h[0] + h[1] + h[2]) / 3.0
-        if prev > 0.0:
-            rel = (prev - recent) / prev
-            if rel >= 0.0:
-                # Improving or flat: tighten the WL approximation, hardest on a
-                # plateau (rel~0) and tapering off as real gains accumulate.
-                tighten = 0.80 + 0.18 * min(1.0, rel / 0.01)
-                gamma *= max(0.80, min(1.0, tighten))
-            else:
-                # Worsening / oscillating: restore smoothness proportionally to
-                # the size of the regression to recover stability.
-                gamma *= min(1.30, 1.0 + min(0.30, (-rel) / 0.005 * 0.15))
+        recent = hpwl_history[-4:]
+        spread = max(recent) - min(recent)
+        denom = abs(recent[-1]) + 1e-12
+        if spread / denom < 1e-3:
+            gamma *= 0.7
 
     return min(50.0, max(0.01, gamma))

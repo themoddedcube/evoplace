@@ -1,22 +1,4 @@
-"""
-EVOLVE_TARGET: gamma_schedule
-
-Initial seed program for OpenEvolve (Experiment 1: WL Smoothing Schedule).
-
-This is the EDITABLE function that the LLM evolution engine will mutate.
-The evaluation harness (evaluator_wrapper.py) calls this function and
-measures the resulting HPWL on the benchmark.
-
-RULES (do not change these comments — the evolution engine reads them):
-- Function signature must be preserved exactly
-- Only modify the function body
-- No new imports allowed
-- No external state or file I/O
-- Return value must be a float in range [0.01, 50.0]
-"""
-
 import math
-
 
 def gamma_schedule(
     iteration: int,
@@ -24,52 +6,42 @@ def gamma_schedule(
     overflow: float,
     hpwl_history: list,
 ) -> float:
-    """
-    WA-WL smoothness schedule: returns γ for the weighted-average wirelength model.
+    # --- defensive normalization -------------------------------------------
+    t = iteration / max(1, total_iterations)
+    t = min(1.0, max(0.0, t))
 
-    γ controls the tradeoff between WL accuracy and gradient smoothness:
-    - High γ (~40): smooth gradients, inaccurate HPWL approximation
-    - Low γ (~0.4): accurate HPWL, but gradients become noisy near convergence
+    ov = overflow
+    if ov != ov:            # NaN guard -> assume fully overlapping
+        ov = 1.0
+    ov = min(1.0, max(0.0, ov))
 
-    Args:
-        iteration: current iteration number (0 to total_iterations-1)
-        total_iterations: total planned iterations
-        overflow: current density overflow (0.0 = no overflow, 1.0 = full overflow)
-        hpwl_history: list of HPWL values at previous iterations
+    # --- overflow-adaptive base (RePlAce/DREAMPlace style) -----------------
+    # high overflow (cells clustered) -> large smoothing gamma
+    # low  overflow (spread out)      -> small accurate gamma
+    # maps ov in [0.1, 1.0] log-linearly to ~[0.8, 50]
+    base = 8.0 * 10.0 ** (1.8 * (ov - 0.1))
 
-    Returns:
-        gamma: float in [0.01, 50.0]
-    """
-    # Overflow-driven base (DREAMPlace family): smooth gradients while cells
-    # are still spread out, sharpening as the layout legalizes.
-    base = 4.0 * 10.0 ** ((overflow - 0.1) * 20.0 / 9.0 - 1.0)
+    # --- cosine-annealed iteration envelope --------------------------------
+    # smooth high->low fallback that does not depend on the overflow signal
+    hi, lo = 8.0, 0.5
+    cos_env = lo + 0.5 * (hi - lo) * (1.0 + math.cos(math.pi * t))
 
-    # Normalized optimization progress in [0, 1].
-    prog = 0.0
-    if total_iterations > 1:
-        prog = iteration / float(total_iterations - 1)
-        prog = min(1.0, max(0.0, prog))
+    # --- blend: trust overflow early, anneal late --------------------------
+    gamma = (1.0 - t) * base + t * cos_env
 
-    # Late-stage sharpening: once the placement is mostly legal, bias gamma
-    # downward so the WA model tracks true HPWL more closely. The push grows
-    # with progress but is gated by low overflow so it never destabilizes the
-    # still-spreading early/mid phases.
-    legal = min(1.0, max(0.0, 1.0 - overflow / 0.15))  # ~0 until overflow < 0.15
-    sharpen = 1.0 - 0.45 * legal * (prog ** 1.5)
-    gamma = base * sharpen
+    # --- stagnation detection: sharpen for final HPWL accuracy -------------
+    if len(hpwl_history) >= 6:
+        recent = [h for h in hpwl_history[-6:] if h == h and abs(h) != float("inf")]
+        if len(recent) >= 4:
+            m = max(recent)
+            if m > 0.0 and (m - min(recent)) / m < 1e-3:
+                gamma *= 0.6      # plateau -> reduce gamma toward true HPWL
 
-    # History-driven adaptation: react to the recent HPWL trajectory.
-    if len(hpwl_history) >= 4:
-        h = hpwl_history[-4:]
-        recent = h[-1]
-        prev = (h[0] + h[1] + h[2]) / 3.0
-        if prev > 0.0:
-            rel = (prev - recent) / prev
-            if -0.001 < rel < 0.001:
-                # Plateau: tighten the WL approximation to squeeze out HPWL.
-                gamma *= 0.85
-            elif rel < -0.005:
-                # Worsening / oscillating: restore smoothness to recover.
-                gamma *= 1.15
+    # --- hard floor in the last 10% to lock in fine placement --------------
+    if t > 0.9:
+        gamma = min(gamma, 1.5)
+
+    if gamma != gamma or abs(gamma) == float("inf"):
+        gamma = 1.0
 
     return min(50.0, max(0.01, gamma))

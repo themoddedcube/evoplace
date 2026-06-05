@@ -1,22 +1,4 @@
-"""
-EVOLVE_TARGET: gamma_schedule
-
-Initial seed program for OpenEvolve (Experiment 1: WL Smoothing Schedule).
-
-This is the EDITABLE function that the LLM evolution engine will mutate.
-The evaluation harness (evaluator_wrapper.py) calls this function and
-measures the resulting HPWL on the benchmark.
-
-RULES (do not change these comments — the evolution engine reads them):
-- Function signature must be preserved exactly
-- Only modify the function body
-- No new imports allowed
-- No external state or file I/O
-- Return value must be a float in range [0.01, 50.0]
-"""
-
 import math
-
 
 def gamma_schedule(
     iteration: int,
@@ -24,60 +6,41 @@ def gamma_schedule(
     overflow: float,
     hpwl_history: list,
 ) -> float:
-    """
-    WA-WL smoothness schedule: returns γ for the weighted-average wirelength model.
+    # Normalized training progress in [0, 1]
+    t = iteration / max(1, total_iterations)
 
-    γ controls the tradeoff between WL accuracy and gradient smoothness:
-    - High γ (~40): smooth gradients, inaccurate HPWL approximation
-    - Low γ (~0.4): accurate HPWL, but gradients become noisy near convergence
+    # Clamp overflow to a sane range
+    of = overflow if overflow == overflow else 1.0  # guard against NaN
+    of = min(1.0, max(0.0, of))
 
-    Args:
-        iteration: current iteration number (0 to total_iterations-1)
-        total_iterations: total planned iterations
-        overflow: current density overflow (0.0 = no overflow, 1.0 = full overflow)
-        hpwl_history: list of HPWL values at previous iterations
+    # 1) Iteration-driven backbone: cosine anneal from high -> low gamma.
+    #    High gamma early (smooth gradients, lets cells cluster/spread),
+    #    low gamma late (accurate HPWL, fine-tuning).
+    g_hi, g_lo = 8.0, 0.5
+    backbone = g_lo + 0.5 * (g_hi - g_lo) * (1.0 + math.cos(math.pi * t))
 
-    Returns:
-        gamma: float in [0.01, 50.0]
-    """
-    ov = min(1.0, max(0.0, overflow))
+    # 2) Overflow-adaptive multiplier (DREAMPlace-style log scaling).
+    #    Keep gamma high while bins are still congested; let it fall as
+    #    the layout legalizes. Centered so overflow~0.1 is neutral.
+    adapt = 10.0 ** ((of - 0.1) * 1.2)
 
-    # Normalized optimization progress in [0, 1].
-    prog = 0.0
-    if total_iterations > 1:
-        prog = iteration / float(total_iterations - 1)
-        prog = min(1.0, max(0.0, prog))
+    gamma = backbone * adapt
 
-    # Overflow-driven base (DREAMPlace family): smooth gradients while cells
-    # are still spread out, sharpening as the layout legalizes.
-    base = 4.0 * 10.0 ** ((ov - 0.1) * 20.0 / 9.0 - 1.0)
+    # 3) Plateau detection: if HPWL has stalled, sharpen the approximation
+    #    (lower gamma) to chase finer wirelength gains.
+    if hpwl_history is not None and len(hpwl_history) >= 6:
+        recent = hpwl_history[-3:]
+        prev = hpwl_history[-6:-3]
+        avg_recent = sum(recent) / 3.0
+        avg_prev = sum(prev) / 3.0
+        if avg_prev > 0.0:
+            rel_improve = (avg_prev - avg_recent) / avg_prev
+            # Less than 0.1% improvement over the window => plateau
+            if rel_improve < 1e-3:
+                gamma *= 0.6
 
-    # Late-stage sharpening: once the placement is mostly legal, bias gamma
-    # downward so the WA model tracks true HPWL more closely. The push grows
-    # with progress but is gated by low overflow so it never destabilizes the
-    # still-spreading early/mid phases. Slightly wider legal gate (0.18) and a
-    # deeper floor (down to ~0.5x base) extract more HPWL accuracy near the end
-    # without touching the spreading phases.
-    legal = min(1.0, max(0.0, 1.0 - ov / 0.18))
-    sharpen = 1.0 - 0.50 * legal * (prog ** 1.3)
-    gamma = base * sharpen
-
-    # History-driven adaptation: react to the recent HPWL trajectory. Use a
-    # 5-sample window and a smoothed 2-sample "recent" estimate to suppress
-    # single-iteration noise in the plateau/oscillation decision.
-    if len(hpwl_history) >= 5:
-        h = hpwl_history[-5:]
-        recent = (h[-1] + h[-2]) / 2.0
-        prev = (h[0] + h[1] + h[2]) / 3.0
-        if prev > 0.0:
-            rel = (prev - recent) / prev
-            if -0.0015 < rel < 0.0015:
-                # Plateau: tighten the WL approximation to squeeze out HPWL.
-                # Tighten harder the deeper we are into the schedule, where
-                # gradient noise costs less than approximation error.
-                gamma *= 0.80 + 0.10 * (1.0 - prog)
-            elif rel < -0.004:
-                # Worsening / oscillating: restore smoothness to recover.
-                gamma *= 1.18
+    # 4) Hard floor late in the schedule to guarantee an accurate final HPWL.
+    if t > 0.9:
+        gamma = min(gamma, 1.0)
 
     return min(50.0, max(0.01, gamma))
