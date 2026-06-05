@@ -558,3 +558,23 @@ envelope), far below useful headroom. Consistent with RESEARCH.md verified
 findings. Campaign closes; next lever per RESEARCH.md is in-loop
 differentiable routability. Full table: experiments/exp01_wl_smoothing/
 multiseed_rerank.tsv.
+
+## 2026-06-05 — CORRECTION to re-rank interpretation (data provenance)
+
+results.tsv contains duplicate iteration indices (e.g. iter 2 appears with
+norm 0.998 AND N/A) — index collisions between TSV records and candidate
+files. Consequence: re-rank rows 4-6 (candidates 0002/0006/0007, measured
+2.2-7.7% worse) were selected from stale/collided records and their files
+are cascade-REJECTED programs, NOT single-seed top candidates. The earlier
+claim "3 of 5 top candidates were actively bad / tail anti-correlated" is
+therefore an overstatement — retracted.
+
+Corrected findings (unchanged measurements, corrected provenance):
+- Single-seed BEST was candidate_0090 (0.99563); multi-seed it is exactly
+  noise (1.00014 ±0.0085). Single-seed runner-up candidate_0117 (0.99716)
+  is the real one: 0.99685 ±0.0027 (+0.315%). → rank-1↔2 inversion at the
+  noise floor; ordering below ~0.45% single-seed is meaningless.
+- seed_program calibration 1.00057 ✓.
+- Rows 4-6 function as negative controls: protocol correctly measures
+  known-bad schedules as 2-8% worse with tight CIs.
+Boundary conclusion unchanged: best real evolved-schedule gain ≈ +0.3%.
