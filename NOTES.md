@@ -140,3 +140,44 @@ schedules/functions, not just scalar knobs.
   (macro_mem\[0\].i_ram) — name-matching code must handle both forms.
 - kepler-formal (LEC) binary requires AVX-512 — SIGILLs on Zen 3 hosts;
   LEC_CHECK=0 is the surgical disable (verification-only, netlist-invariant).
+
+---
+
+## 2026-06-04 — GPU bring-up (RTX 3060) + recovery of lost integration
+
+Machine move CPU→GPU exposed that the entire DREAMPlace integration only
+existed as uncommitted local state on the old machine and was lost:
+
+1. **Hook-patched PlaceObj.py** — not in the fork, not in any branch, no
+   patch file. Recreated against the dreamplace_ext/hooks.py contract and
+   COMMITTED this time (fork branch `evoplace-hooks`, archived copy at
+   dreamplace_ext/patches/). Evolved γ is dimensionless [0.01, 50], scaled
+   by (bin_size_x + bin_size_y) inside update_gamma. λ hook wraps
+   update_density_weight. init_positions / timing_loss hooks remain unwired
+   (Exp 3/4). This was exactly Klein-4 failure mode (b): "evolved parameters
+   that were dead code paths" — without the patch every candidate evaluated
+   identically and no test caught it.
+2. **run_placement.py real path could never have run as committed**
+   (abstract BasicPlace, dict-for-Params, metrics list indexed as dict).
+   Rewritten: Params.load + NonLinearPlace + nested-metrics extraction.
+3. **Build fixes for modern toolchain**: cub CUB_NS_PREFIX wrapping breaks
+   CCCL 2.x (CUDA 12.6) → global include + namespace alias; np.string_
+   removed in NumPy 2.0 → np.bytes_. Both committed to the fork.
+
+**GPU baselines (fft_1/fft_2, seed 42, stop_overflow 0.07 + legalization)**:
+2.180e6 @ ovf 0.082 (29.4s) / 1.921e6 @ ovf 0.070 (12.2s). The CPU-era
+"norm 2.268 @ overflow 0.65, 50-iter" numbers reproduce exactly on GPU at
+50 iters (2.275 / 0.65) — CPU runs were real, just truncated.
+
+**Cascade was structurally broken**: stage thresholds (2.0/1.3) normalized
+truncated-run HPWL against the CONVERGED baseline; the default schedule
+itself lands at 2.28x after 50 iters → everything culled. Fix: per-stage
+baselines [50/300/full]: fft_1 4.96e6/5.42e6/2.18e6.
+
+**Seed program was not the default it claimed to be**: linear 8→0.5 vs
+DREAMPlace's overflow-driven 4.0×10^((ovfl−0.1)·20/9−1) (~40→0.4). Seed now
+reproduces the true default; verified through the real cascade at
+norm_hpwl = 0.999. Evolution starts at parity, not from a 2x handicap.
+
+Exp 1 (20 iters, claude-code-cli backend) launched. Cascade cost/candidate:
+~5s cull at stage 0, ~70s full pass.

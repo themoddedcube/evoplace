@@ -49,14 +49,30 @@ DREAMPlace 4.0 backbone
 | 4 | Differentiable TNS Surrogate | MLP loss term | TNS ↓ | ⏳ Pending |
 | 5 | Full System | Best of Exp 1–4 | ≥5% HPWL + ≥10% TNS | ⏳ Pending |
 
-### Exp 0 Baselines (CPU, ISPD 2015)
+### Exp 0 Baselines (GPU, ISPD 2015)
 
-Measured on WSL2 Ubuntu 24.04, Intel CPU, no GPU. GPU convergence (overflow ≤ 0.07) will produce lower HPWL values; these numbers set the CPU comparison floor.
+Measured 2026-06-04 on WSL2 Ubuntu 24.04, RTX 3060 (sm_86), CUDA 12.6, seed 42.
+GP converged to stop_overflow 0.07 + legalization (no detailed placement —
+the NTUPlace binary is not distributed with the fork). Legalized HPWL:
 
 | Circuit | HPWL | Overflow | Runtime |
 |---------|------|----------|---------|
-| `fft_1` | 2.182 × 10⁶ | 1.00 | 826 s |
-| `fft_2` | 2.490 × 10⁶ | 1.00 | 78 s |
+| `fft_1` | 2.180 × 10⁶ | 0.082 | 29.4 s |
+| `fft_2` | 1.921 × 10⁶ | 0.070 | 12.2 s |
+
+Stage-matched cascade baselines (50 / 300 / full iterations, used by
+`evolve/evaluator_wrapper.py`): fft_1 4.96e6 / 5.42e6 / 2.18e6;
+fft_2 3.25e6 / 3.91e6 / 1.92e6. Truncated runs land ~2–2.5× above the
+converged HPWL, so early cascade stages normalize against same-budget
+baselines, not the converged one.
+
+<details>
+<summary>Historical CPU numbers (pre-GPU)</summary>
+
+CPU (no CUDA), fft_1: 2.182e6 in 826 s; fft_2: 2.490e6 in 78 s. The
+"overflow 1.00" recorded then was a metrics-extraction artifact (fixed —
+the final legalization metric carries no overflow field).
+</details>
 
 ---
 
@@ -75,9 +91,9 @@ evoplace/
 │   └── custom_objectives.py
 │
 ├── evolve/                 # LLM-guided evolutionary search
-│   ├── run_evolution.py    # CLI entry point; multi-backend LLM (CC CLI / API / Gemini)
+│   ├── run_evolution.py    # CLI entry point; multi-backend LLM (CC CLI / API)
 │   ├── evaluator_wrapper.py # Bridges OpenEvolve ↔ DREAMPlace cascade evaluator
-│   ├── initial_program.py  # Seed γ schedule (linear decay; evolution baseline)
+│   ├── initial_program.py  # Seed γ schedule (reproduces DREAMPlace default)
 │   └── config.yaml         # MAP-Elites settings, cascade thresholds
 │
 ├── autoresearch/           # Karpathy-style autonomous experiment loop
@@ -192,7 +208,7 @@ Results are saved to `experiments/exp00_baseline/results/`. The script automatic
 ### Exp 1 — γ Schedule Evolution
 
 ```bash
-# Auto-detects LLM backend: Claude Code CLI → Anthropic API → Gemini
+# Auto-detects LLM backend: Claude Code CLI → Anthropic API
 python evolve/run_evolution.py --experiment exp01_wl_smoothing --iterations 200
 
 # Force a specific backend
@@ -207,9 +223,8 @@ python evolve/run_evolution.py --experiment exp01_wl_smoothing --iterations 3
 
 | Backend | Requirement | Notes |
 |---------|-------------|-------|
-| `claude-code-cli` | Claude Code installed | Uses existing CC session; no key needed |
+| `claude-code-cli` | Claude Code installed | `claude -p`; no key needed |
 | `anthropic-api` | `ANTHROPIC_API_KEY` set | Direct API access |
-| `gemini` | `GEMINI_API_KEY` set | Free tier at aistudio.google.com |
 
 ### Exp 2 — λ Schedule Evolution
 
@@ -251,12 +266,15 @@ print(result.metrics)  # {"hpwl": ..., "mean_overflow": ..., "tns_proxy": ...}
 To avoid spending full placement time on bad candidates, evolution uses three-stage cascade filtering (GPU mode):
 
 ```
-Stage 1 (50 iters)  → reject if early HPWL trajectory is diverging
-Stage 2 (300 iters) → reject if norm_hpwl > 1.3 × baseline
-Stage 3 (full)      → complete placement; record all metrics
+Stage 0 (50 iters)  → reject if HPWL > 2.0 × the 50-iter baseline
+Stage 1 (300 iters) → reject if HPWL > 1.3 × the 300-iter baseline
+Stage 2 (full)      → complete placement; record all metrics
 ```
 
-On CPU (no CUDA), cascade is replaced with a flat 50-iteration evaluation to avoid false elimination from non-convergent placements.
+Each stage normalizes against a baseline measured at the *same* iteration
+budget (see Exp 0). Normalizing truncated runs against the converged
+baseline would cull every candidate — including the default schedule, which
+lands at ~2.3× its converged HPWL after 50 iterations.
 
 ### Evolved Function Contract
 
