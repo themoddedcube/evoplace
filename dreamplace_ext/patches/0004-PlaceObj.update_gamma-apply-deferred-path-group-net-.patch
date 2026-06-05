@@ -1,0 +1,43 @@
+From 1727b4092b13ea4202415ee96e7e02680352bcc9 Mon Sep 17 00:00:00 2001
+From: themoddedcube <themoddedcube@gmail.com>
+Date: Thu, 4 Jun 2026 23:38:37 -0500
+Subject: [PATCH 4/4] PlaceObj.update_gamma: apply deferred path-group net
+ weights (Exp 4)
+
+Consumes hooks.pop_deferred_net_weights_if_triggered each Lgamma iteration,
+writing the registered path-group criticality weights into
+data_collections.net_weights the first time overflow crosses the activation
+threshold (phased activation per dreamplace_ext.hooks design).
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ dreamplace/PlaceObj.py | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/dreamplace/PlaceObj.py b/dreamplace/PlaceObj.py
+index c6cd59e..cad1737 100644
+--- a/dreamplace/PlaceObj.py
++++ b/dreamplace/PlaceObj.py
+@@ -958,6 +958,19 @@ class PlaceObj(nn.Module):
+         else:
+             overflow_avg = overflow
+ 
++        # EvoPlace: apply deferred path-group net weights (Exp 4, Variant A)
++        # once overflow first crosses the activation threshold. Independent of
++        # the gamma hook — fires whenever weights were registered.
++        if evoplace_hooks is not None:
++            _w = evoplace_hooks.pop_deferred_net_weights_if_triggered(
++                float(overflow_avg.mean().item()))
++            if _w is not None:
++                with torch.no_grad():
++                    nw = self.data_collections.net_weights
++                    nw.data.copy_(torch.as_tensor(
++                        _w, dtype=nw.dtype, device=nw.device))
++                logging.info("evoplace: deferred path-group net weights applied")
++
+         # EvoPlace: delegate to an evolved gamma schedule when one is registered.
+         # The hook returns a dimensionless gamma in [0.01, 20] (see
+         # evolve/initial_program.py); internal gamma carries bin-size units, so
+-- 
+2.43.0
+

@@ -1,0 +1,51 @@
+From 5f02b728565d44123575cecfc8f744fa0c5c877d Mon Sep 17 00:00:00 2001
+From: themoddedcube <themoddedcube@gmail.com>
+Date: Thu, 4 Jun 2026 22:53:36 -0500
+Subject: [PATCH 2/4] Fix cub include for CCCL 2.x (CUDA 12.x): alias instead
+ of namespace-wrapping
+
+CUB_NS_PREFIX wrapping breaks CCCL 2.x cub headers (internal references to
+::cuda::proclaim_return_type / ::cuda::discard_memory resolve into the
+wrapping namespace). Include cub at global scope and alias it into
+DREAMPLACE_NAMESPACE for CUDA >= 12; keep the old wrapping for older CUDA.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ dreamplace/ops/utility/src/utils_cub.cuh | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/dreamplace/ops/utility/src/utils_cub.cuh b/dreamplace/ops/utility/src/utils_cub.cuh
+index 3e53a76..d26f707 100644
+--- a/dreamplace/ops/utility/src/utils_cub.cuh
++++ b/dreamplace/ops/utility/src/utils_cub.cuh
+@@ -11,6 +11,20 @@
+ 
+ #include "utility/src/namespace.h"
+ 
++#include <cuda.h>
++
++#if CUDA_VERSION >= 12000
++// CCCL 2.x (CUDA 12.x) no longer supports the CUB_NS_PREFIX wrapping trick:
++// wrapping the cub headers in an outer namespace breaks their internal
++// references to ::cuda::proclaim_return_type / ::cuda::discard_memory
++// (they resolve to DreamPlace::cuda instead). Include cub at global scope
++// and alias it into the DreamPlace namespace so existing unqualified
++// cub:: references keep working.
++#include <cub/cub.cuh>
++namespace DREAMPLACE_NAMESPACE {
++namespace cub = ::cub;
++}
++#else
+ // include cub in a safe manner
+ #define CUB_NS_PREFIX namespace DREAMPLACE_NAMESPACE {
+ #define CUB_NS_POSTFIX }
+@@ -19,5 +33,6 @@
+ #undef CUB_NS_QUALIFIER
+ #undef CUB_NS_POSTFIX
+ #undef CUB_NS_PREFIX
++#endif
+ 
+ #endif
+-- 
+2.43.0
+

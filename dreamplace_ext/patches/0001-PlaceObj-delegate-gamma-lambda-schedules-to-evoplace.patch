@@ -1,7 +1,7 @@
 From 0e82690ae1588cb072608a7a68610f362628baa7 Mon Sep 17 00:00:00 2001
 From: themoddedcube <themoddedcube@gmail.com>
 Date: Thu, 4 Jun 2026 22:33:16 -0500
-Subject: [PATCH] PlaceObj: delegate gamma/lambda schedules to evoplace
+Subject: [PATCH 1/4] PlaceObj: delegate gamma/lambda schedules to evoplace
  dreamplace_ext hooks
 
 When the evoplace project root is on sys.path, evolved schedule functions
