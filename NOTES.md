@@ -786,3 +786,21 @@ ablation −8.53% (5-seed band −7.9 to −9.7%), fft_1 γ race −0.05% (noise
 draw; multi-seed −0.315% ± 0.09% unchanged). Verification note repeated
 for posterity: read GIF frame durations INSIDE the ImageSequence loop —
 collecting frames first yields N references to the final frame.
+
+## 2026-06-06 — Gallery final layout: original per-field table GIFs, timing-aligned
+
+User preference settled on the original look: markdown tables of standalone
+density/potential/field GIFs under each main GIF. render_surface_gif now
+renders each standalone file over the SAME frame sequence (iter_seq) as
+the main GIF instead of free-running over its own captured frames, so all
+four GIFs of a section share one frame count, fps, and loop period
+(verified: fft_1 10.3 s, fft_2 5.7 s, superblue12 7.0 s per file) — load-
+start offsets in a browser stay constant rather than diverging, and every
+file carries a per-frame iteration stamp. --fields-render default is now
+"separate"; strip/embed modes retained; fields.gif strips removed.
+
+Render deltas this round (captions updated; no claims change): fft_2 λ
+ablation −9.90% (today's four renders of the same seed-42 pair: −8.53 to
+−9.90%, mean ≈ −9.2%, consistent with the 5-seed band), fft_1 γ race
+−0.27% — near the multi-seed mean by luck of the draw (yesterday's
+renders: −0.42%, −0.05%; not selected).

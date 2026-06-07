@@ -10,13 +10,14 @@ Two modes:
 
 With --fields density|all, animated 3D surfaces of the bin density map
 (and electric potential / field magnitude with `all`) are rendered per
---fields-render: "strip" (default) writes fields.gif — all panels side by
-side in ONE file with the exact frame sequence, fps, and loop period of
-the main GIF (panels mutually pixel-locked; equal loop periods keep any
-browser load-start offset constant, and iteration counters on both files
-make alignment verifiable); "embed" draws the surfaces as a bottom row
-inside the main GIF; "separate" writes legacy standalone per-field GIFs
-(free-running, will drift).
+--fields-render: "separate" (default) writes standalone per-field GIFs
+(density_map_SLD.gif style) for the README tables, each generated over
+the EXACT frame sequence, fps, and loop period of the main GIF — browsers
+start each file on its own (no way around that without JS), but equal
+loop periods keep any load-start offset constant, and the per-frame
+iteration stamp on every file makes alignment verifiable; "strip" writes
+one fields.gif with all panels side by side; "embed" draws the surfaces
+as a bottom row inside the main GIF.
 
 Positions are captured by monkeypatching NonLinearPlace.plot (called every
 `params.plot_interval` iterations — requires the plot_interval patch in
@@ -279,29 +280,32 @@ def assemble_gif(images, out, fps):
     print(f"Saved {len(images)}-frame GIF: {out}")
 
 
-def render_surface_gif(field_snaps, key, out_path, zlabel, fps):
-    """Animated 3D surface like the official density_map_SLD.gif."""
-    snaps = [(it, maps[key]) for it, maps in field_snaps if key in maps]
-    if not snaps:
+def render_surface_gif(ctx, key, iter_seq, out_path, zlabel, fps):
+    """Standalone animated 3D surface like the official density_map_SLD.gif,
+    rendered over the SAME frame sequence as the main GIF (one frame per
+    iter_seq entry, per-key fallback to the most recent captured map), so
+    every GIF of a run shares one frame count, fps, and loop period."""
+    if ctx is None or key not in ctx["zlims"]:
         print(f"  no {key} frames captured, skipping {out_path}")
         return
-    # Cap z at the 99th percentile across all frames: a handful of extreme
-    # bins (initial macro/density spikes) otherwise set the scale and make
-    # the x/y structure we actually care about indistinguishable.
-    all_vals = np.concatenate([m.ravel() for _, m in snaps])
-    zmax = float(np.percentile(all_vals, 99.0))
-    zmin = float(all_vals.min())
-    if zmax <= zmin:
-        zmax = float(all_vals.max())
-    nbx, nby = snaps[0][1].shape
+    # z capped at the 99th percentile across all frames (via ctx): a handful
+    # of extreme bins (initial macro/density spikes) otherwise set the scale
+    # and make the x/y structure we actually care about indistinguishable.
+    zmin, zmax = ctx["zlims"][key]
     # upstream plots map[x][y] against meshgrid(ys, xs) (see
-    # electric_overflow.plot); mgrid keeps axis order consistent
-    xs, ys = np.meshgrid(np.arange(nby), np.arange(nbx))
+    # electric_overflow.plot); the shared ctx mesh keeps axis order consistent
+    xs, ys = ctx["mesh"]
+    last = next(m[key] for _, m in sorted(ctx["by_iter"].items())
+                if key in m)
     images = []
-    for it, m in snaps:
+    for it in iter_seq:
+        m = ctx["by_iter"].get(it, {}).get(key)
+        if m is not None:
+            last = m
         fig = plt.figure(figsize=(6.4, 5.2), dpi=100)
         ax = fig.add_subplot(projection="3d")
-        ax.plot_surface(xs, ys, np.minimum(m, zmax), alpha=0.8, cmap="viridis")
+        ax.plot_surface(xs, ys, np.minimum(last, zmax), alpha=0.8,
+                        cmap="viridis")
         ax.set_zlim(zmin, zmax * 1.02)
         ax.set_xlabel("bin y", fontsize=8)
         ax.set_ylabel("bin x", fontsize=8)
@@ -506,13 +510,13 @@ def main():
                     default="none",
                     help="capture bin maps and render animated 3D surfaces "
                          "(see --fields-render for where they go)")
-    ap.add_argument("--fields-render", choices=["strip", "embed", "separate"],
-                    default="strip",
-                    help="strip: one fields.gif with the panels side by side, "
-                         "same frame sequence / fps / loop period as the main "
-                         "GIF (default); embed: surfaces as a bottom row "
-                         "inside the main GIF; separate: legacy standalone "
-                         "per-field GIFs (free-running, will drift)")
+    ap.add_argument("--fields-render", choices=["separate", "strip", "embed"],
+                    default="separate",
+                    help="separate: standalone per-field GIFs for the README "
+                         "tables, each on the SAME frame sequence / fps / "
+                         "loop period as the main GIF (default); strip: all "
+                         "panels side by side in one fields.gif; embed: "
+                         "surfaces as a bottom row inside the main GIF")
     ap.add_argument("--out", default=None, help="comparison GIF path (legacy)")
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
@@ -574,13 +578,14 @@ def main():
             render_fields_strip(field_snaps, iter_seq,
                                 out_dir / "fields.gif", fps, strip_width)
         elif args.fields_render == "separate":
-            render_surface_gif(field_snaps, "density",
+            ctx = _surface_context(field_snaps)
+            render_surface_gif(ctx, "density", iter_seq,
                                out_dir / "density.gif", "density", fps)
             if args.fields == "all":
-                render_surface_gif(field_snaps, "potential",
+                render_surface_gif(ctx, "potential", iter_seq,
                                    out_dir / "potential.gif", "potential",
                                    fps)
-                render_surface_gif(field_snaps, "field",
+                render_surface_gif(ctx, "field", iter_seq,
                                    out_dir / "field.gif", "|E| field", fps)
 
 
