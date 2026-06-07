@@ -723,3 +723,18 @@ no claims change). All 12 GIFs re-synced to the common 250 iters/sec /
 0450 at frame 18 × 100 ms ✓). README gallery now uniform: every design
 section is heading + description + main GIF + bare field-surface table
 (the separate "Electrostatics in motion" heading is gone).
+
+## 2026-06-06 — Sign convention unified: GIF banners now show signed ΔHPWL (negative = better)
+
+The comparison-GIF suptitle computed Δ as (1 − evolved/default)·100
+(improvement-positive, so the λ ablation read "+9.46%") while the README
+text reported signed wirelength change ("−9%"). make_comparison_gif.py now
+prints Δ = (evolved/default − 1)·100 — negative = better — and both
+comparison GIFs were regenerated. Reruns (GPU nondeterminism, no claims
+change): fft_2 λ ablation −9.34% (range across renders −9.09/−9.34/−9.46%,
+all inside the documented 0.9026–0.9212 per-seed band); fft_1 γ candidate
+−0.42% single-seed (multi-seed claim stays −0.315% ± 0.09%, σ ≈ 0.15%
+noise floor). README γ mentions aligned to the same convention (gallery
+caption now "−0.315% ± 0.09% HPWL"; prose uses unsigned
+"reduction"/"gain" wording). All GIFs re-synced to the common 250
+iters/sec / 10.2 s loop.

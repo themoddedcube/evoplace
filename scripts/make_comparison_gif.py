@@ -342,15 +342,16 @@ def render_comparison_gif(snap_e, snap_d, hp_e, hp_d, gamma_by_iter, nl,
         ax_m.set_ylabel("HPWL", fontsize=8)
         ax_m.tick_params(labelsize=7)
         ax_m.legend(fontsize=7, loc="upper right")
-        delta = (1 - he / hd) * 100 if hd else 0.0
+        # sign convention: Δ HPWL relative to default, negative = better
+        delta = (he / hd - 1) * 100 if hd else 0.0
         fig.suptitle(
             f"{bench} (seed {seed}) — evolved vs default {symbol} schedule   "
-            f"current Δ {delta:+.2f}%   final Δ {(1 - final_ratio) * 100:+.2f}%",
+            f"current Δ {delta:+.2f}%   final Δ {(final_ratio - 1) * 100:+.2f}%",
             fontsize=11)
         images.append(fig_to_image(fig))
     assemble_gif(images, out, fps)
     print(f"final HPWL: evolved {res_e.metrics['hpwl']:.6e} vs "
-          f"default {res_d.metrics['hpwl']:.6e}  ({(1 - final_ratio) * 100:+.3f}%)")
+          f"default {res_d.metrics['hpwl']:.6e}  ({(final_ratio - 1) * 100:+.3f}%)")
 
 
 def render_single_gif(snaps, hp, nl, result, bench, seed, out, fps):
