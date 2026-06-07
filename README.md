@@ -19,11 +19,11 @@ update (right) vs the same update with its HPWL-feedback guard branch removed
 [NOTES.md](NOTES.md) 2026-06-05). The live λ annotation shows the
 unconditional ramp pulling ahead mid-flight.
 
-![Lambda ablation vs default](graphs/comparisons/fft_2_lambda_s42/comparison.gif)
+![Lambda ablation vs default](graphs/comparisons/fft_2_lambda_s42/comparison.gif?v=2)
 
 | Density | Potential | Field magnitude |
 |:---:|:---:|:---:|
-| ![fft_2 density](graphs/comparisons/fft_2_lambda_s42/density.gif) | ![fft_2 potential](graphs/comparisons/fft_2_lambda_s42/potential.gif) | ![fft_2 field](graphs/comparisons/fft_2_lambda_s42/field.gif) |
+| ![fft_2 density](graphs/comparisons/fft_2_lambda_s42/density.gif?v=2) | ![fft_2 potential](graphs/comparisons/fft_2_lambda_s42/potential.gif?v=2) | ![fft_2 field](graphs/comparisons/fft_2_lambda_s42/field.gif?v=2) |
 
 ### Evolved vs. default γ schedule — `fft_1` (ISPD 2015)
 
@@ -35,22 +35,22 @@ the confirmed multi-seed paired result is **−0.315% ± 0.09% HPWL (SEM)** —
 statistically real, practically tiny; the campaign's boundary result (see
 [NOTES.md](NOTES.md)).
 
-![Evolved vs default placement convergence](graphs/comparisons/fft_1_s42/comparison.gif)
+![Evolved vs default placement convergence](graphs/comparisons/fft_1_s42/comparison.gif?v=2)
 
 | Density | Potential | Field magnitude |
 |:---:|:---:|:---:|
-| ![density](graphs/comparisons/fft_1_s42/density.gif) | ![potential](graphs/comparisons/fft_1_s42/potential.gif) | ![field](graphs/comparisons/fft_1_s42/field.gif) |
+| ![density](graphs/comparisons/fft_1_s42/density.gif?v=2) | ![potential](graphs/comparisons/fft_1_s42/potential.gif?v=2) | ![field](graphs/comparisons/fft_1_s42/field.gif?v=2) |
 
 ### Large-design showcase — `superblue12` (1.3M cells)
 
 Full convergence of DREAMPlace's default flow on superblue12, cells rendered
 as density scatter (128 GB unified memory holds the whole design resident).
 
-<img src="graphs/comparisons/superblue12_showcase/convergence.gif" width="100%">
+<img src="graphs/comparisons/superblue12_showcase/convergence.gif?v=2" width="100%">
 
 | Density | Potential | Field magnitude |
 |:---:|:---:|:---:|
-| ![superblue12 density](graphs/comparisons/superblue12_showcase/density.gif) | ![superblue12 potential](graphs/comparisons/superblue12_showcase/potential.gif) | ![superblue12 field](graphs/comparisons/superblue12_showcase/field.gif) |
+| ![superblue12 density](graphs/comparisons/superblue12_showcase/density.gif?v=2) | ![superblue12 potential](graphs/comparisons/superblue12_showcase/potential.gif?v=2) | ![superblue12 field](graphs/comparisons/superblue12_showcase/field.gif?v=2) |
 
 
 ---

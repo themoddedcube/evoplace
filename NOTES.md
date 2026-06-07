@@ -804,3 +804,24 @@ ablation −9.90% (today's four renders of the same seed-42 pair: −8.53 to
 −9.90%, mean ≈ −9.2%, consistent with the 5-seed band), fft_1 γ race
 −0.27% — near the multi-seed mean by luck of the draw (yesterday's
 renders: −0.42%, −0.05%; not selected).
+
+## 2026-06-06 — Stale-CDN false alarm on the gallery; image URLs cache-busted
+
+Report that "electrostatics are still on the placer graphs" after the
+table-layout commit. Verified against the committed files: all three main
+GIFs are the plain layout (990x704 / 792x858, final frames extracted and
+inspected — no surface row). Cause: GitHub serves README images through
+its camo CDN, which caches by URL; the embed-era comparison.gif (same
+path) kept being served after the content changed. Fix: appended ?v=2 to
+all 12 gallery image URLs — camo treats them as new resources and fetches
+the current files immediately. Bump the version on any future in-place
+GIF replacement.
+
+Size-reduction attempts for tighter load-start alignment (fft_1
+comparison.gif is 7.3 MB vs 1.4-2.5 MB tables), all rejected: 64-color
+re-quantization −1% (size is cell-speckle entropy, not palette);
+no-dither −1%; LANCZOS downscale to 830 px +80% (resampling destroys the
+inter-frame diff optimization). Conclusion: sizes are at their entropy
+floor; sync relies on equal loop periods (offset constant, not
+diverging), GitHub's lazy image loading (a section's images enter the
+viewport together), and per-frame iteration stamps for verification.
