@@ -78,7 +78,15 @@ python scripts/make_comparison_gif.py \
 
 # Single-run convergence showcase (no --program)
 python scripts/make_comparison_gif.py --benchmark superblue12 --interval 50 --fields density
+
+# Re-sync playback timing across all gallery GIFs (250 iters/sec, common loop period)
+python scripts/retime_gifs.py
 ```
+
+Frame rate defaults to `--iters-per-sec 250 / --interval`, so GIFs captured at
+different intervals still advance their iteration counters at the same
+wall-clock rate. After regenerating any GIF, run `retime_gifs.py` to re-pad
+the final-frame holds to the common loop period.
 
 ## Stub Mode (no DREAMPlace build required)
 

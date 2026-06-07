@@ -680,3 +680,30 @@ LLM evolution on top of it: zero. Combined campaign conclusion: schedule
 *search* is dead in both γ and λ spaces; schedule *auditing* produced the
 only real win. No multi-seed re-rank needed (no candidate within 60σ of
 the seed).
+
+## 2026-06-06 — Gallery GIF timing unified; Honesty section now leads with the audit number
+
+Presentation-only fixes, no new measurements. (1) The README gallery GIFs
+were captured at different --interval values (fft_1/fft_2: 25, superblue12:
+50) but all rendered at 10 fps, so iteration counters advanced at 250 vs
+500 iters/sec and loop periods ranged 4.4–10.3 s — visually confusing side
+by side. New scripts/retime_gifs.py rewrites frame durations to a common
+250 iters/sec and pads each final-frame hold to a shared 10.2 s loop
+period, so all nine GIFs advance and restart in sync (idempotent; timing
+derived from the recorded capture intervals, pixel content untouched —
+verified frame-by-frame: counters 0000/0400/0600/1051 at the expected
+wall-clock times). make_comparison_gif.py now defaults fps to
+--iters-per-sec 250 / --interval so regenerated figures can't drift;
+--fps remains as an explicit override. docs/RUNNING.md documents both.
+(2) README "Honesty, up front" stated only the evolution bound (+0.315% ±
+0.09%) and omitted the campaign's largest number; it now states both with
+the distinction preserved: evolution → +0.315% at best, *auditing* the
+default's λ guard branch → 1–9% at matched density (14/14 paired seeds,
+4 designs). No claims-ledger change — both numbers were already confirmed
+(2026-06-05 entries).
+
+Verification gotcha worth recording: PIL's ImageSequence.Iterator yields
+the SAME mutable Image object each step, so list(Iterator) gives N
+references to the final frame — convert() inside the loop, or you'll
+"verify" the wrong thing (this produced a false alarm during checking;
+retime_gifs.py itself converts per-frame and was always correct).

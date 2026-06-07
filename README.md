@@ -6,7 +6,9 @@ EvoPlace is a research system that applies LLM-guided evolutionary search to aut
 
 ## Honesty, up front
 
-**The evolved schedules ended up only marginally better than DREAMPlace's defaults — +0.315% ± 0.09% HPWL at best — so if you're here for a faster/better placer, this isn't it.** What this repo *is*: a complete, honestly-documented research campaign with some findings we think are worth your time anyway ([Key Findings](#key-findings)).
+**The LLM-evolved schedules ended up only marginally better than DREAMPlace's defaults — +0.315% ± 0.09% HPWL at best — so if you're here for an evolved super-placer, this isn't it.** The campaign's one big number came from *auditing* the default rather than evolving past it: removing the guard branch from DREAMPlace's density-weight (λ) update is worth **1–9% HPWL at matched density** (14/14 paired seeds across 4 designs — the first animation below). What this repo *is*: a complete, honestly-documented research campaign with some findings we think are worth your time anyway ([Key Findings](#key-findings)).
+
+*All animations below play at the same rate — 250 placement iterations per second — and share a 10.2 s loop, so the iteration counters advance and restart in sync.*
 
 ---
 

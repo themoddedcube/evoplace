@@ -391,13 +391,19 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--interval", type=int, default=25)
     ap.add_argument("--max-iterations", type=int, default=2000)
-    ap.add_argument("--fps", type=int, default=10)
+    ap.add_argument("--iters-per-sec", type=int, default=250,
+                    help="playback rate in placement iterations per second; "
+                         "keeps gallery GIFs advancing in sync regardless of "
+                         "--interval (see scripts/retime_gifs.py)")
+    ap.add_argument("--fps", type=int, default=None,
+                    help="explicit frame rate, overrides --iters-per-sec")
     ap.add_argument("--fields", choices=["none", "density", "all"],
                     default="none",
                     help="also render 3D surface GIFs of bin maps")
     ap.add_argument("--out", default=None, help="comparison GIF path (legacy)")
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
+    fps = args.fps or max(1, round(args.iters_per_sec / args.interval))
 
     bench_dir = PROJECT_ROOT / "benchmarks" / args.benchmark
     out_dir = Path(args.out_dir) if args.out_dir else (
@@ -424,7 +430,7 @@ def main():
         render_comparison_gif(snap_e, snap_d, hp_e, hp_d,
                               dict((it, g) for it, g, _ in gtrace), nl,
                               res_e, res_d, args.benchmark, args.seed,
-                              out, args.fps,
+                              out, fps,
                               symbol=("λ" if args.hook == "lambda" else "γ"))
         field_snaps = fields_e
     else:
@@ -436,16 +442,16 @@ def main():
         hp = [(it, hpwl_of(x, y, nl)) for it, x, y in snaps]
         out = Path(args.out) if args.out else out_dir / "convergence.gif"
         render_single_gif(snaps, hp, nl, result, args.benchmark, args.seed,
-                          out, args.fps)
+                          out, fps)
 
     if args.fields != "none":
         render_surface_gif(field_snaps, "density",
-                           out_dir / "density.gif", "density", args.fps)
+                           out_dir / "density.gif", "density", fps)
         if args.fields == "all":
             render_surface_gif(field_snaps, "potential",
-                               out_dir / "potential.gif", "potential", args.fps)
+                               out_dir / "potential.gif", "potential", fps)
             render_surface_gif(field_snaps, "field",
-                               out_dir / "field.gif", "|E| field", args.fps)
+                               out_dir / "field.gif", "|E| field", fps)
 
 
 if __name__ == "__main__":
