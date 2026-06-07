@@ -707,3 +707,19 @@ the SAME mutable Image object each step, so list(Iterator) gives N
 references to the final frame — convert() inside the loop, or you'll
 "verify" the wrong thing (this produced a false alarm during checking;
 retime_gifs.py itself converts per-frame and was always correct).
+
+## 2026-06-06 — fft_2 electrostatics GIFs generated; gallery layout made uniform
+
+The λ audit-finding section was the only gallery entry without the
+density/potential/field surface row. Regenerated it with --fields all
+(seed program experiments/exp02_density_schedule/evolution_runs/
+best_program.py, --hook lambda, fft_2, seed 42, interval 25; command now
+recorded in docs/RUNNING.md). The rerun independently reproduced the
+audit result: evolved 1.7434e+06 vs default 1.9178e+06 → −9.09% (prior
+render: −9.46%; both inside the documented per-seed ratio range
+0.9026–0.9212 from the 2026-06-05 entry — run-to-run GPU nondeterminism,
+no claims change). All 12 GIFs re-synced to the common 250 iters/sec /
+10.2 s loop via retime_gifs.py; mid-frame counters verified (iteration
+0450 at frame 18 × 100 ms ✓). README gallery now uniform: every design
+section is heading + description + main GIF + bare field-surface table
+(the separate "Electrostatics in motion" heading is gone).

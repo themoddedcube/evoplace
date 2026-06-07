@@ -22,6 +22,10 @@ The live λ annotation shows the unconditional ramp pulling ahead mid-flight.
 
 ![Lambda ablation vs default](graphs/comparisons/fft_2_lambda_s42/comparison.gif)
 
+| Density | Potential | Field magnitude |
+|:---:|:---:|:---:|
+| ![fft_2 density](graphs/comparisons/fft_2_lambda_s42/density.gif) | ![fft_2 potential](graphs/comparisons/fft_2_lambda_s42/potential.gif) | ![fft_2 field](graphs/comparisons/fft_2_lambda_s42/field.gif) |
+
 ### Evolved vs. default γ schedule — `fft_1` (ISPD 2015)
 
 The best evolved schedule from Exp 1 (`candidate_0117`, overflow-driven
@@ -31,12 +35,6 @@ same seed, with live HPWL underneath. Multi-seed paired result: **+0.315% ±
 result (see [NOTES.md](NOTES.md)).
 
 ![Evolved vs default placement convergence](graphs/comparisons/fft_1_s42/comparison.gif)
-
-### Electrostatics in motion — `fft_1`
-
-Bin-level views of the e-place physics during the same run: cell density
-flattening as cells spread, the electric potential that drives them, and the
-field magnitude.
 
 | Density | Potential | Field magnitude |
 |:---:|:---:|:---:|

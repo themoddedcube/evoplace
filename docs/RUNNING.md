@@ -76,6 +76,12 @@ python scripts/make_comparison_gif.py \
     --program experiments/exp01_wl_smoothing/evolution_runs/candidate_0117.py \
     --benchmark fft_1 --seed 42 --interval 25 --fields all
 
+# Lambda audit-finding GIF (guard-branch ablation seed vs default) + fields
+python scripts/make_comparison_gif.py \
+    --program experiments/exp02_density_schedule/evolution_runs/best_program.py \
+    --hook lambda --benchmark fft_2 --seed 42 --interval 25 --fields all \
+    --out-dir graphs/comparisons/fft_2_lambda_s42
+
 # Single-run convergence showcase (no --program)
 python scripts/make_comparison_gif.py --benchmark superblue12 --interval 50 --fields density
 
