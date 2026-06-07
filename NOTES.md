@@ -765,3 +765,24 @@ paired noise floor; deliberately NOT re-rolled for a prettier number
 (that would be the exact cherry-picking this campaign documents). README
 caption now states the render's own delta next to the confirmed
 multi-seed −0.315% ± 0.09%.
+
+## 2026-06-06 — Field surfaces back as a visual table row: one fields.gif per section, timing-matched to the placer GIF
+
+User preference: the side-by-side table look, not surfaces embedded in the
+main GIF. Constraint unchanged: GitHub READMEs run no JS, so two files can
+never be started together. Resolution — render the three surface panels
+into ONE fields.gif (so density/potential/field are mutually pixel-locked,
+which was most of the visible desync) with the EXACT frame sequence, fps,
+and loop period of the main GIF above it: equal loop periods make any
+load-start offset constant rather than diverging, and both files carry
+iteration counters so residual offset is visible and interpretable.
+make_comparison_gif.py: --fields-render {strip (default), embed,
+separate}; embed mode (previous entry) retained.
+
+All three sections regenerated (fps/loop pairs verified identical:
+fft_1 83f/10.3s, fft_2 37f/5.7s, superblue12 25f/7.0s; counters check out
+at 250 it/s). Render deltas, disclosed in captions as before: fft_2 λ
+ablation −8.53% (5-seed band −7.9 to −9.7%), fft_1 γ race −0.05% (noise
+draw; multi-seed −0.315% ± 0.09% unchanged). Verification note repeated
+for posterity: read GIF frame durations INSIDE the ImageSequence loop —
+collecting frames first yields N references to the final frame.

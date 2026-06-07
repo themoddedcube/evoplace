@@ -86,12 +86,17 @@ python scripts/make_comparison_gif.py \
 python scripts/make_comparison_gif.py --benchmark superblue12 --interval 50 --fields all
 ```
 
-With `--fields`, the density/potential/field surfaces are rendered as a
-bottom row inside the main GIF, frame-locked to the placement panels
-(separate image files cannot be kept in sync in a browser). Frame rate
-defaults to `--iters-per-sec 250 / --interval`, so GIFs captured at
-different intervals still advance their iteration counters at the same
-wall-clock rate.
+With `--fields`, the density/potential/field surfaces are written to
+`fields.gif` — all panels side by side in one file, with the exact frame
+sequence, fps, and loop period of the main GIF (`--fields-render strip`,
+the default). The panels are therefore mutually pixel-locked; against the
+main GIF, equal loop periods keep any browser load-start offset constant,
+and both files carry iteration counters so alignment is verifiable.
+`--fields-render embed` draws the surfaces inside the main GIF instead;
+`separate` writes legacy free-running per-field GIFs. Frame rate defaults
+to `--iters-per-sec 250 / --interval`, so GIFs captured at different
+intervals still advance their iteration counters at the same wall-clock
+rate.
 
 ## Stub Mode (no DREAMPlace build required)
 

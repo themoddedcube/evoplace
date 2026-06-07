@@ -9,11 +9,14 @@ Two modes:
                             default schedule (bigblue4-nofiller style)
 
 With --fields density|all, animated 3D surfaces of the bin density map
-(and electric potential / field magnitude with `all`) are rendered as a
-bottom row INSIDE the main GIF, frame-locked to the placement panels —
-separate image files cannot be kept in sync in a browser, so the surfaces
-live in the same file. --separate-fields restores the legacy standalone
-surface GIFs (density_map_SLD.gif style) in addition.
+(and electric potential / field magnitude with `all`) are rendered per
+--fields-render: "strip" (default) writes fields.gif — all panels side by
+side in ONE file with the exact frame sequence, fps, and loop period of
+the main GIF (panels mutually pixel-locked; equal loop periods keep any
+browser load-start offset constant, and iteration counters on both files
+make alignment verifiable); "embed" draws the surfaces as a bottom row
+inside the main GIF; "separate" writes legacy standalone per-field GIFs
+(free-running, will drift).
 
 Positions are captured by monkeypatching NonLinearPlace.plot (called every
 `params.plot_interval` iterations — requires the plot_interval patch in
@@ -361,6 +364,30 @@ def _draw_surface_row(fig, gs, ctx, iteration):
         ax.set_zlim(zmin, zmax * 1.02)
 
 
+def render_fields_strip(field_snaps, iter_seq, out, fps, width_in):
+    """One-file 'table row': density/potential/field 3D panels side by side,
+    one frame per entry of iter_seq — the EXACT frame sequence of the main
+    GIF, so both files have identical frame counts, durations, and loop
+    period. Separate files can still start at different moments in a browser
+    (no way around that without JS), but equal loop periods keep any offset
+    constant, and the iteration counter makes alignment verifiable."""
+    surf = _surface_context(field_snaps)
+    if surf is None:
+        print(f"  no field frames captured, skipping {out}")
+        return
+    images = []
+    for it in iter_seq:
+        fig = plt.figure(figsize=(width_in, width_in * 0.36), dpi=110)
+        gs = fig.add_gridspec(1, len(surf["keys"]), wspace=0.28,
+                              left=0.02, right=0.98, top=0.88, bottom=0.04)
+        _draw_surface_row(fig, gs, surf, it)
+        # iteration counter, same style as the placement panels
+        fig.text(0.99, 0.97, "{:04d}".format(it), ha="right", va="top",
+                 fontsize=11, fontweight="bold", color="0.25")
+        images.append(fig_to_image(fig))
+    assemble_gif(images, out, fps)
+
+
 def render_comparison_gif(snap_e, snap_d, hp_e, hp_d, gamma_by_iter, nl,
                           res_e, res_d, bench, seed, out, fps, symbol="γ",
                           field_snaps=None):
@@ -477,12 +504,15 @@ def main():
                     help="explicit frame rate, overrides --iters-per-sec")
     ap.add_argument("--fields", choices=["none", "density", "all"],
                     default="none",
-                    help="capture bin maps and embed an animated surface row "
-                         "INSIDE the main GIF, frame-locked to the placer")
-    ap.add_argument("--separate-fields", action="store_true",
-                    help="additionally write density/potential/field as "
-                         "standalone GIFs (legacy; cannot stay in sync with "
-                         "the placer GIF in a browser)")
+                    help="capture bin maps and render animated 3D surfaces "
+                         "(see --fields-render for where they go)")
+    ap.add_argument("--fields-render", choices=["strip", "embed", "separate"],
+                    default="strip",
+                    help="strip: one fields.gif with the panels side by side, "
+                         "same frame sequence / fps / loop period as the main "
+                         "GIF (default); embed: surfaces as a bottom row "
+                         "inside the main GIF; separate: legacy standalone "
+                         "per-field GIFs (free-running, will drift)")
     ap.add_argument("--out", default=None, help="comparison GIF path (legacy)")
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
@@ -510,12 +540,18 @@ def main():
         hp_e = [(it, hpwl_of(x, y, nl)) for it, x, y in snap_e]
         hp_d = [(it, hpwl_of(x, y, nl)) for it, x, y in snap_d]
         out = Path(args.out) if args.out else out_dir / "comparison.gif"
+        n_frames = max(len(snap_e), len(snap_d))
+        iter_seq = [snap_e[min(f, len(snap_e) - 1)][0]
+                    for f in range(n_frames)]
+        strip_width = 9  # matches the comparison figure width
         render_comparison_gif(snap_e, snap_d, hp_e, hp_d,
                               dict((it, g) for it, g, _ in gtrace), nl,
                               res_e, res_d, args.benchmark, args.seed,
                               out, fps,
                               symbol=("λ" if args.hook == "lambda" else "γ"),
-                              field_snaps=fields_e)
+                              field_snaps=(
+                                  fields_e
+                                  if args.fields_render == "embed" else None))
         field_snaps = fields_e
     else:
         print("Running default schedule (showcase mode) ...")
@@ -525,17 +561,27 @@ def main():
         print(f"  {len(snaps)} frames, final HPWL {result.metrics['hpwl']:.4e}")
         hp = [(it, hpwl_of(x, y, nl)) for it, x, y in snaps]
         out = Path(args.out) if args.out else out_dir / "convergence.gif"
+        iter_seq = [it for it, _, _ in snaps]
+        strip_width = 7.2  # matches the showcase figure width
         render_single_gif(snaps, hp, nl, result, args.benchmark, args.seed,
-                          out, fps, field_snaps=field_snaps)
+                          out, fps,
+                          field_snaps=(field_snaps
+                                       if args.fields_render == "embed"
+                                       else None))
 
-    if args.separate_fields and args.fields != "none":
-        render_surface_gif(field_snaps, "density",
-                           out_dir / "density.gif", "density", fps)
-        if args.fields == "all":
-            render_surface_gif(field_snaps, "potential",
-                               out_dir / "potential.gif", "potential", fps)
-            render_surface_gif(field_snaps, "field",
-                               out_dir / "field.gif", "|E| field", fps)
+    if args.fields != "none":
+        if args.fields_render == "strip":
+            render_fields_strip(field_snaps, iter_seq,
+                                out_dir / "fields.gif", fps, strip_width)
+        elif args.fields_render == "separate":
+            render_surface_gif(field_snaps, "density",
+                               out_dir / "density.gif", "density", fps)
+            if args.fields == "all":
+                render_surface_gif(field_snaps, "potential",
+                                   out_dir / "potential.gif", "potential",
+                                   fps)
+                render_surface_gif(field_snaps, "field",
+                                   out_dir / "field.gif", "|E| field", fps)
 
 
 if __name__ == "__main__":

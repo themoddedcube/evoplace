@@ -14,23 +14,28 @@ EvoPlace is a research system that applies LLM-guided evolutionary search to aut
 
 The campaign's biggest result, animated: DREAMPlace's default density-weight
 update (right) vs the same update with its HPWL-feedback guard branch removed
-(left) — identical final density, **−9% wirelength** on fft_2 (verified −1 to
-−8.7% across 4 designs, 14/14 paired seeds; [NOTES.md](NOTES.md) 2026-06-05).
-The live λ annotation shows the unconditional ramp pulling ahead mid-flight.
+(left) — identical final density, **−8.5% wirelength** on this render of fft_2
+(5-seed mean −8.7%; verified −1 to −8.7% across 4 designs, 14/14 paired seeds;
+[NOTES.md](NOTES.md) 2026-06-05). The live λ annotation shows the
+unconditional ramp pulling ahead mid-flight.
 
 ![Lambda ablation vs default](graphs/comparisons/fft_2_lambda_s42/comparison.gif)
+
+<img src="graphs/comparisons/fft_2_lambda_s42/fields.gif" width="100%">
 
 ### Evolved vs. default γ schedule — `fft_1` (ISPD 2015)
 
 The best evolved schedule from Exp 1 (`candidate_0117`, overflow-driven
 exponential γ with a progress envelope) racing the DREAMPlace default on the
 same seed, with live HPWL underneath. Any single render of this race lands
-wherever the σ ≈ 0.2% single-seed noise floor throws it (this one: −0.00%);
+wherever the σ ≈ 0.2% single-seed noise floor throws it (this one: −0.05%);
 the confirmed multi-seed paired result is **−0.315% ± 0.09% HPWL (SEM)** —
 statistically real, practically tiny; the campaign's boundary result (see
 [NOTES.md](NOTES.md)).
 
 ![Evolved vs default placement convergence](graphs/comparisons/fft_1_s42/comparison.gif)
+
+<img src="graphs/comparisons/fft_1_s42/fields.gif" width="100%">
 
 ### Large-design showcase — `superblue12` (1.3M cells)
 
@@ -38,6 +43,8 @@ Full convergence of DREAMPlace's default flow on superblue12, cells rendered
 as density scatter (128 GB unified memory holds the whole design resident).
 
 <img src="graphs/comparisons/superblue12_showcase/convergence.gif" width="100%">
+
+<img src="graphs/comparisons/superblue12_showcase/fields.gif" width="100%">
 
 
 ---
