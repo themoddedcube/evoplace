@@ -83,16 +83,15 @@ python scripts/make_comparison_gif.py \
     --out-dir graphs/comparisons/fft_2_lambda_s42
 
 # Single-run convergence showcase (no --program)
-python scripts/make_comparison_gif.py --benchmark superblue12 --interval 50 --fields density
-
-# Re-sync playback timing across all gallery GIFs (250 iters/sec, common loop period)
-python scripts/retime_gifs.py
+python scripts/make_comparison_gif.py --benchmark superblue12 --interval 50 --fields all
 ```
 
-Frame rate defaults to `--iters-per-sec 250 / --interval`, so GIFs captured at
+With `--fields`, the density/potential/field surfaces are rendered as a
+bottom row inside the main GIF, frame-locked to the placement panels
+(separate image files cannot be kept in sync in a browser). Frame rate
+defaults to `--iters-per-sec 250 / --interval`, so GIFs captured at
 different intervals still advance their iteration counters at the same
-wall-clock rate. After regenerating any GIF, run `retime_gifs.py` to re-pad
-the final-frame holds to the common loop period.
+wall-clock rate.
 
 ## Stub Mode (no DREAMPlace build required)
 

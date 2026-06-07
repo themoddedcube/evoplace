@@ -8,9 +8,12 @@ Two modes:
   (no --program)          : single-run convergence showcase GIF of the
                             default schedule (bigblue4-nofiller style)
 
-With --fields density|all, also renders animated 3D surface GIFs of the
-bin density map (and electric potential / field magnitude with `all`),
-matching the official README's density_map_SLD.gif / potential_map_SLD.gif.
+With --fields density|all, animated 3D surfaces of the bin density map
+(and electric potential / field magnitude with `all`) are rendered as a
+bottom row INSIDE the main GIF, frame-locked to the placement panels —
+separate image files cannot be kept in sync in a browser, so the surfaces
+live in the same file. --separate-fields restores the legacy standalone
+surface GIFs (density_map_SLD.gif style) in addition.
 
 Positions are captured by monkeypatching NonLinearPlace.plot (called every
 `params.plot_interval` iterations — requires the plot_interval patch in
@@ -306,19 +309,80 @@ def render_surface_gif(field_snaps, key, out_path, zlabel, fps):
     assemble_gif(images, out_path, fps)
 
 
+def _surface_context(field_snaps):
+    """Precompute everything the embedded surface row needs: per-key z-limits
+    (99th-percentile capped, fixed across frames), the bin meshgrid, and an
+    iteration -> maps lookup. Returns None when there is nothing to embed."""
+    if not field_snaps:
+        return None
+    keys = [k for k in ("density", "potential", "field")
+            if any(k in m for _, m in field_snaps)]
+    if not keys:
+        return None
+    ctx = {"keys": keys, "by_iter": dict(field_snaps), "last_per_key": {}}
+    nbx, nby = field_snaps[0][1][keys[0]].shape
+    # axis order matches render_surface_gif / upstream electric_overflow.plot
+    ctx["mesh"] = np.meshgrid(np.arange(nby), np.arange(nbx))
+    ctx["zlims"] = {}
+    for k in keys:
+        vals = np.concatenate([m[k].ravel() for _, m in field_snaps if k in m])
+        zmax = float(np.percentile(vals, 99.0))
+        zmin = float(vals.min())
+        if zmax <= zmin:
+            zmax = float(vals.max())
+        ctx["zlims"][k] = (zmin, zmax)
+    return ctx
+
+
+def _draw_surface_row(fig, gs, ctx, iteration):
+    """Bottom gridspec row: density/potential/field surfaces at exactly the
+    placement panel's iteration (per-key fallback to the most recent captured
+    map if a capture was skipped — keeps the row dense, never ahead)."""
+    titles = {"density": "density", "potential": "potential",
+              "field": "|E| field"}
+    maps = ctx["by_iter"].get(iteration, {})
+    xs, ys = ctx["mesh"]
+    width = gs.ncols // len(ctx["keys"])
+    for j, k in enumerate(ctx["keys"]):
+        m = maps.get(k)
+        if m is not None:
+            ctx["last_per_key"][k] = m
+        else:
+            m = ctx["last_per_key"].get(k)
+        ax = fig.add_subplot(gs[-1, j * width:(j + 1) * width],
+                             projection="3d")
+        ax.set_title(titles[k], fontsize=8)
+        ax.tick_params(labelsize=4, pad=-2)
+        if m is None:
+            continue
+        zmin, zmax = ctx["zlims"][k]
+        ax.plot_surface(xs, ys, np.minimum(m, zmax), alpha=0.8,
+                        cmap="viridis", linewidth=0)
+        ax.set_zlim(zmin, zmax * 1.02)
+
+
 def render_comparison_gif(snap_e, snap_d, hp_e, hp_d, gamma_by_iter, nl,
-                          res_e, res_d, bench, seed, out, fps, symbol="γ"):
+                          res_e, res_d, bench, seed, out, fps, symbol="γ",
+                          field_snaps=None):
     n_frames = max(len(snap_e), len(snap_d))
     final_ratio = res_e.metrics["hpwl"] / res_d.metrics["hpwl"]
+    surf = _surface_context(field_snaps)
     images = []
     for f in range(n_frames):
         e = snap_e[min(f, len(snap_e) - 1)]
         d = snap_d[min(f, len(snap_d) - 1)]
-        fig = plt.figure(figsize=(9, 6.4), dpi=110)
-        gs = fig.add_gridspec(2, 2, height_ratios=[3.1, 1], hspace=0.18,
-                              wspace=0.06)
-        ax_e = fig.add_subplot(gs[0, 0])
-        ax_d = fig.add_subplot(gs[0, 1])
+        if surf:
+            fig = plt.figure(figsize=(9, 9.2), dpi=110)
+            gs = fig.add_gridspec(3, 6, height_ratios=[3.1, 1, 1.8],
+                                  hspace=0.32, wspace=0.3)
+            ax_e = fig.add_subplot(gs[0, :3])
+            ax_d = fig.add_subplot(gs[0, 3:])
+        else:
+            fig = plt.figure(figsize=(9, 6.4), dpi=110)
+            gs = fig.add_gridspec(2, 2, height_ratios=[3.1, 1], hspace=0.18,
+                                  wspace=0.06)
+            ax_e = fig.add_subplot(gs[0, 0])
+            ax_d = fig.add_subplot(gs[0, 1])
         ax_m = fig.add_subplot(gs[1, :])
 
         he = hp_e[min(f, len(hp_e) - 1)][1]
@@ -348,20 +412,31 @@ def render_comparison_gif(snap_e, snap_d, hp_e, hp_d, gamma_by_iter, nl,
             f"{bench} (seed {seed}) — evolved vs default {symbol} schedule   "
             f"current Δ {delta:+.2f}%   final Δ {(final_ratio - 1) * 100:+.2f}%",
             fontsize=11)
+        if surf:
+            _draw_surface_row(fig, gs, surf, e[0])
         images.append(fig_to_image(fig))
     assemble_gif(images, out, fps)
     print(f"final HPWL: evolved {res_e.metrics['hpwl']:.6e} vs "
           f"default {res_d.metrics['hpwl']:.6e}  ({(final_ratio - 1) * 100:+.3f}%)")
 
 
-def render_single_gif(snaps, hp, nl, result, bench, seed, out, fps):
+def render_single_gif(snaps, hp, nl, result, bench, seed, out, fps,
+                      field_snaps=None):
     """Single-run convergence showcase (bigblue4-nofiller style)."""
+    surf = _surface_context(field_snaps)
     images = []
     for f, (it, x, y) in enumerate(snaps):
-        fig = plt.figure(figsize=(7.2, 7.8), dpi=110)
-        gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.15)
-        ax_p = fig.add_subplot(gs[0])
-        ax_m = fig.add_subplot(gs[1])
+        if surf:
+            fig = plt.figure(figsize=(7.2, 10.4), dpi=110)
+            gs = fig.add_gridspec(3, 3, height_ratios=[4, 1, 1.7],
+                                  hspace=0.22, wspace=0.3)
+            ax_p = fig.add_subplot(gs[0, :])
+            ax_m = fig.add_subplot(gs[1, :])
+        else:
+            fig = plt.figure(figsize=(7.2, 7.8), dpi=110)
+            gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.15)
+            ax_p = fig.add_subplot(gs[0])
+            ax_m = fig.add_subplot(gs[1])
         draw_placement(ax_p, x, y, nl,
                        f"{bench} — HPWL {hp[f][1]:.3e}", it)
         ax_m.plot([i for i, _ in hp[: f + 1]], [v for _, v in hp[: f + 1]],
@@ -374,6 +449,8 @@ def render_single_gif(snaps, hp, nl, result, bench, seed, out, fps):
         ax_m.tick_params(labelsize=7)
         fig.suptitle(f"{bench} (seed {seed}) — DREAMPlace convergence, "
                      f"final HPWL {result.metrics['hpwl']:.4e}", fontsize=11)
+        if surf:
+            _draw_surface_row(fig, gs, surf, it)
         images.append(fig_to_image(fig))
     assemble_gif(images, out, fps)
 
@@ -394,13 +471,18 @@ def main():
     ap.add_argument("--max-iterations", type=int, default=2000)
     ap.add_argument("--iters-per-sec", type=int, default=250,
                     help="playback rate in placement iterations per second; "
-                         "keeps gallery GIFs advancing in sync regardless of "
-                         "--interval (see scripts/retime_gifs.py)")
+                         "keeps gallery GIFs advancing at the same speed "
+                         "regardless of --interval")
     ap.add_argument("--fps", type=int, default=None,
                     help="explicit frame rate, overrides --iters-per-sec")
     ap.add_argument("--fields", choices=["none", "density", "all"],
                     default="none",
-                    help="also render 3D surface GIFs of bin maps")
+                    help="capture bin maps and embed an animated surface row "
+                         "INSIDE the main GIF, frame-locked to the placer")
+    ap.add_argument("--separate-fields", action="store_true",
+                    help="additionally write density/potential/field as "
+                         "standalone GIFs (legacy; cannot stay in sync with "
+                         "the placer GIF in a browser)")
     ap.add_argument("--out", default=None, help="comparison GIF path (legacy)")
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
@@ -432,7 +514,8 @@ def main():
                               dict((it, g) for it, g, _ in gtrace), nl,
                               res_e, res_d, args.benchmark, args.seed,
                               out, fps,
-                              symbol=("λ" if args.hook == "lambda" else "γ"))
+                              symbol=("λ" if args.hook == "lambda" else "γ"),
+                              field_snaps=fields_e)
         field_snaps = fields_e
     else:
         print("Running default schedule (showcase mode) ...")
@@ -443,9 +526,9 @@ def main():
         hp = [(it, hpwl_of(x, y, nl)) for it, x, y in snaps]
         out = Path(args.out) if args.out else out_dir / "convergence.gif"
         render_single_gif(snaps, hp, nl, result, args.benchmark, args.seed,
-                          out, fps)
+                          out, fps, field_snaps=field_snaps)
 
-    if args.fields != "none":
+    if args.separate_fields and args.fields != "none":
         render_surface_gif(field_snaps, "density",
                            out_dir / "density.gif", "density", fps)
         if args.fields == "all":

@@ -8,8 +8,6 @@ EvoPlace is a research system that applies LLM-guided evolutionary search to aut
 
 **The LLM-evolved schedules ended up only marginally better than DREAMPlace's defaults — a 0.315% ± 0.09% HPWL reduction at best — so if you're here for an evolved super-placer, this isn't it.** The campaign's one big number came from *auditing* the default rather than evolving past it: removing the guard branch from DREAMPlace's density-weight (λ) update is worth **1–9% HPWL at matched density** (14/14 paired seeds across 4 designs — the first animation below). What this repo *is*: a complete, honestly-documented research campaign with some findings we think are worth your time anyway ([Key Findings](#key-findings)).
 
-*All animations below play at the same rate — 250 placement iterations per second — and share a 10.2 s loop, so the iteration counters advance and restart in sync.*
-
 ---
 
 ### The λ audit finding — `fft_2` (ISPD 2015)
@@ -22,23 +20,17 @@ The live λ annotation shows the unconditional ramp pulling ahead mid-flight.
 
 ![Lambda ablation vs default](graphs/comparisons/fft_2_lambda_s42/comparison.gif)
 
-| Density | Potential | Field magnitude |
-|:---:|:---:|:---:|
-| ![fft_2 density](graphs/comparisons/fft_2_lambda_s42/density.gif) | ![fft_2 potential](graphs/comparisons/fft_2_lambda_s42/potential.gif) | ![fft_2 field](graphs/comparisons/fft_2_lambda_s42/field.gif) |
-
 ### Evolved vs. default γ schedule — `fft_1` (ISPD 2015)
 
 The best evolved schedule from Exp 1 (`candidate_0117`, overflow-driven
 exponential γ with a progress envelope) racing the DREAMPlace default on the
-same seed, with live HPWL underneath. Multi-seed paired result: **−0.315% ±
-0.09% HPWL (SEM)** — statistically real, practically tiny; the campaign's
-boundary result (see [NOTES.md](NOTES.md)).
+same seed, with live HPWL underneath. Any single render of this race lands
+wherever the σ ≈ 0.2% single-seed noise floor throws it (this one: −0.00%);
+the confirmed multi-seed paired result is **−0.315% ± 0.09% HPWL (SEM)** —
+statistically real, practically tiny; the campaign's boundary result (see
+[NOTES.md](NOTES.md)).
 
 ![Evolved vs default placement convergence](graphs/comparisons/fft_1_s42/comparison.gif)
-
-| Density | Potential | Field magnitude |
-|:---:|:---:|:---:|
-| ![density](graphs/comparisons/fft_1_s42/density.gif) | ![potential](graphs/comparisons/fft_1_s42/potential.gif) | ![field](graphs/comparisons/fft_1_s42/field.gif) |
 
 ### Large-design showcase — `superblue12` (1.3M cells)
 
@@ -46,10 +38,6 @@ Full convergence of DREAMPlace's default flow on superblue12, cells rendered
 as density scatter (128 GB unified memory holds the whole design resident).
 
 <img src="graphs/comparisons/superblue12_showcase/convergence.gif" width="100%">
-
-| Density | Potential | Field magnitude |
-|:---:|:---:|:---:|
-| ![superblue12 density](graphs/comparisons/superblue12_showcase/density.gif) | ![superblue12 potential](graphs/comparisons/superblue12_showcase/potential.gif) | ![superblue12 field](graphs/comparisons/superblue12_showcase/field.gif) |
 
 
 ---

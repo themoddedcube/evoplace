@@ -738,3 +738,30 @@ noise floor). README γ mentions aligned to the same convention (gallery
 caption now "−0.315% ± 0.09% HPWL"; prose uses unsigned
 "reduction"/"gain" wording). All GIFs re-synced to the common 250
 iters/sec / 10.2 s loop.
+
+## 2026-06-06 — Electrostatics embedded INSIDE the gallery GIFs; padded-loop sync scheme retired
+
+The previous sync approach (equal loop periods + padded final holds across
+separate GIF files) was wrong in practice: browsers start each GIF when it
+finishes loading, so separate files drift regardless of matched timelines,
+and the padding left fft_2 frozen for 6.7 s per loop. Separate surface GIFs
+cannot be guaranteed in sync with the placer — so they are no longer
+separate: make_comparison_gif.py now renders the density/potential/field
+surfaces as a bottom row inside the comparison/convergence GIF,
+frame-locked to the placement panels (same capture call, same iteration;
+--separate-fields restores the legacy standalone files). retime_gifs.py
+deleted (superseded); the 9 standalone surface GIFs removed from the repo;
+all three gallery GIFs regenerated at their natural lengths with the usual
+2 s hold; counters still advance at 250 iters/sec via the generator
+default. README sync claim removed.
+
+Rerun numbers (no claims change): fft_2 λ ablation −9.09%; superblue12
+default convergence 2.6049e+08. fft_1 γ race this render: −0.00% — a
+legitimate single-seed noise draw (hook verified live: γ annotation on
+frame, trajectories diverge mid-flight, current Δ +0.46% at midpoint).
+Observed single-seed deltas across today's renders of the identical
+config: −0.23%, −0.42%, −0.00% — a live demonstration of the σ ≈ 0.2%
+paired noise floor; deliberately NOT re-rolled for a prettier number
+(that would be the exact cherry-picking this campaign documents). README
+caption now states the render's own delta next to the confirmed
+multi-seed −0.315% ± 0.09%.
