@@ -61,6 +61,7 @@ as density scatter (128 GB unified memory holds the whole design resident).
 - **A clean injection harness**: evolve placement schedule functions as pure Python, no rebuilds, with cascade evaluation that rejects bad candidates at 13× lower cost.
 - **The full story in [NOTES.md](NOTES.md)** — including the dead-hook fiasco, the data-provenance bug we caught in our own results, and an adversarially-verified literature review ([RESEARCH.md](docs/RESEARCH.md)) of what actually moves placement QoR.
 - **An audit finding bigger than the evolution**: removing the guard branch from DREAMPlace's density-weight update wins **1–9% HPWL at matched density, 14/14 paired seeds across 4 designs** — found while writing the Exp 2 seed, flagged by the sanity gate at 7σ, and it *generalizes* ([NOTES.md](NOTES.md), 2026-06-05).
+- **A reward hack caught live, and a gated null result**: 9 iterations into Exp 2, the search "won" by suppressing density spreading (HPWL 0.978 at 5× the legal overflow). With an overflow gate added to fitness, the clean 200-candidate run found *nothing* — the seed stayed unbeaten. Every objective a schedule can influence needs an explicit gate, or the search will find the loophole.
 - Some genuinely fun [visualizations](#evolved-vs-default-γ-schedule--fft_1-ispd-2015) of the e-place physics.
 
 ---
@@ -70,6 +71,8 @@ as density scatter (128 GB unified memory holds the whole design resident).
 **Noise-calibrated evaluation, always.** The single-seed fitness noise floor (σ ≈ 0.15% normalized HPWL) was measured before the campaign; no single-seed improvement below 3σ is treated as a result; every campaign ends with paired multi-seed re-ranking in which the seed program rides along as a calibration row. This protocol is the project's main methodological takeaway.
 
 **Hook-liveness gates before every campaign.** An earlier CPU-era run silently evaluated vanilla DREAMPlace for every candidate (the hooks weren't wired in) — 20 "candidates" whose score spread was pure numerical noise. Now: the seed must reproduce the default at norm 1.0 ± 0.01, and a deliberately degenerate schedule must score very differently, before any evolution starts.
+
+**Gate every objective the schedule can influence.** Exp 2's λ search exploited an HPWL-only fitness within 9 iterations: suppress the density ramp, cells stay clustered, wirelength looks great. The fix — reject any candidate whose final mean overflow exceeds 0.12 (defaults end at 0.07–0.085) — turned a stream of "improvements" into an honest null result. Fitness specification is part of the noise discipline.
 
 **Algorithm evolution, not hyperparameter tuning.** AutoDMP (NVIDIA, ISPD 2023) applied Bayesian optimization over DREAMPlace's scalar hyperparameters. EvoPlace searches over the functional form of schedule components — a strictly larger space. (The campaign's conclusion: for *schedules* specifically, that larger space contains almost nothing the default doesn't already capture.)
 
@@ -119,12 +122,14 @@ DREAMPlace 4.0 backbone
 |---|------|--------|----------------|---------|
 | 0 | DREAMPlace Baseline | Reproduction | HPWL | ✅ Done — re-measured per machine (table below) |
 | 1 | WL Smoothing Schedule | Evolve γ(t), 200 iters | HPWL ↓ | ✅ **Done — boundary result: best real gain +0.315% ± 0.09%; single-seed winner was noise** |
-| 2 | Density Weight Schedule | Evolve λ(t) | HPWL ↓ at matched overflow | 🔄 **Running** — and the seed itself produced the campaign's biggest finding (below) |
+| 2 | Density Weight Schedule | Evolve λ(t) | HPWL ↓ at matched overflow | ✅ **Done — null result: seed unbeaten (150/200 gated, 49 survivors all worse); the seed itself is the campaign's biggest finding (below)** |
 | 3 | GNN Warm Initialization | Heterogeneous GNN | Iters to converge ↓ | ❌ Not run — models built and unit-tested only |
 | 4 | Differentiable TNS Surrogate | MLP loss term | TNS ↓ | ❌ Not run — hooks built; blocked by benchmark/timer constraints |
 | 5 | Full System | Best of 1–4 | HPWL + TNS | ❌ Superseded by the boundary result |
 
 Exp 1 in one figure: 200 candidates, 93% cascade-rejected, every apparent improvement inside the single-seed noise band, one survivor confirmed real by paired multi-seed re-ranking — see Figs. 1–2 of the [paper](paper/paper.pdf).
+
+Exp 2 in one sentence: with legality enforced (overflow gate), 200 gated candidates produced nothing better than the guard-branch-ablation seed — λ-space beyond the unconditional ramp offered the search only reward hacks. Combined campaign conclusion: schedule *search* is dead in both γ and λ spaces; schedule *auditing* produced the only real win.
 
 ### Exp 0 Baselines (converged, legalized, seed 42)
 
@@ -168,9 +173,8 @@ evoplace/
 ├── benchmarks/             # ISPD 2015 / ICCAD 2015 circuits (not committed — see SETUP.md)
 ├── vendor/dreamplace/      # DREAMPlace fork (submodule, branch evoplace-hooks)
 ├── scripts/                # multiseed_rerank.py, make_comparison_gif.py
-├── NOTES.md                # The complete research journal
-├── RESEARCH.md             # Adversarially-verified literature review
-└── PAPER_DRAFT.md          # Early draft notes (superseded by paper/)
+├── docs/                   # SETUP, RUNNING, PRD, RESEARCH (lit review), PAPER_DRAFT
+└── NOTES.md                # The complete research journal
 ```
 
 ---
