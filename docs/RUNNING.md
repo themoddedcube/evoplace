@@ -83,7 +83,11 @@ python scripts/make_comparison_gif.py \
     --out-dir graphs/comparisons/fft_2_lambda_s42
 
 # Single-run convergence showcase (no --program)
-python scripts/make_comparison_gif.py --benchmark superblue12 --interval 25 --fields all \
+# embed mode: surfaces strip baked INSIDE convergence.gif — one file, no
+# load-time drift on github.com (the per-field table layout couldn't sync
+# the 4 separate GIFs without JS).
+python scripts/make_comparison_gif.py --benchmark superblue12 --interval 25 \
+    --fields all --fields-render embed \
     --out-dir graphs/comparisons/superblue12_showcase
 ```
 

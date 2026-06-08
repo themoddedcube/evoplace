@@ -855,3 +855,30 @@ CRASH_DIAGNOSIS.md to evaluator/run_placement.py too. sb12 + gpu=1 has
 worked empirically in prior renders (below the superblue15 size
 threshold), but the patch eliminates an entire crash class for any
 future evoplace-side rendering on larger benchmarks.
+
+## 2026-06-08 — sb12 switched to embed mode (surface strip inside convergence.gif)
+
+Reported after the --interval 25 push: the three electrostatics panels
+were visibly lagging behind convergence on github.com. Root cause is
+file-size-driven load offset, not metadata: at the new --interval 25
+sizes (convergence 1.62 MB, density 1.56 MB, potential 930 KB, field
+843 KB), the smaller surfaces finish downloading first and start playing
+ahead of convergence — a constant phase offset of ~1 s of the 6.6 s
+loop, since GitHub-without-JS can't start the four files
+simultaneously.
+
+Switched the sb12 panel to `--fields-render embed`: surfaces baked into
+convergence.gif as a frame-locked bottom strip. Single file → zero
+possible drift. New convergence.gif is 2.16 MB / 792×1144 / 46 f /
+6.97 fps / 6.60 s (height +286 px for the surface row). Final HPWL
+2.6064e+08 — same converged state. Stale density.gif / potential.gif /
+field.gif removed; README simplified to a single image (no surface
+table); README ?v=3 → ?v=4 to cache-bust camo. docs/RUNNING.md command
+updated to include `--fields-render embed`.
+
+This reverses an earlier "user preference settled on the per-field
+table look" decision: the table look is fundamentally incompatible with
+synchronized playback on github.com because there's no JS to coordinate
+load times. fft_1 and fft_2 keep their per-field tables because the
+sync error is small enough on those panels to be a non-issue per the
+user.
