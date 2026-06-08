@@ -83,7 +83,8 @@ python scripts/make_comparison_gif.py \
     --out-dir graphs/comparisons/fft_2_lambda_s42
 
 # Single-run convergence showcase (no --program)
-python scripts/make_comparison_gif.py --benchmark superblue12 --interval 50 --fields all
+python scripts/make_comparison_gif.py --benchmark superblue12 --interval 25 --fields all \
+    --out-dir graphs/comparisons/superblue12_showcase
 ```
 
 With `--fields`, the density/potential/field surfaces are written to

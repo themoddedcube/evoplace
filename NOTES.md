@@ -825,3 +825,33 @@ inter-frame diff optimization). Conclusion: sizes are at their entropy
 floor; sync relies on equal loop periods (offset constant, not
 diverging), GitHub's lazy image loading (a section's images enter the
 viewport together), and per-frame iteration stamps for verification.
+
+## 2026-06-08 — superblue12 gallery re-rendered at --interval 25 (matches fft panels)
+
+Reported visible artifact: sb12 panel felt choppier than the fft panels.
+Root cause was the documented invocation: `--interval 50` for sb12 vs
+`--interval 25` for fft_1/fft_2, which (with `--iters-per-sec 250`
+unchanged) put sb12 at 25 frames / 7.0s / 3.57 fps against fft_1's 83
+frames / 10.3s / ~8 fps. Re-rendered with `--interval 25 --out-dir
+graphs/comparisons/superblue12_showcase`: now 46 frames / 6.60s / 6.97
+fps — between fft_2 (6.5 fps) and fft_1 (8.0 fps). Final HPWL 2.6042e+08
+matches the prior render's 2.6049e+08 (same converged state). docs/
+RUNNING.md command updated; README ?v=2 → ?v=3 on all four sb12 image
+URLs to cache-bust camo.
+
+Also reported: electrostatics start later than the placer per loop. This
+is the same browser load-time offset documented in the earlier
+"stale-CDN" entry — not GIF metadata (all four sb12 files are 6.60s
+loops). The finer-stride render does NOT meaningfully reduce it: file
+sizes roughly doubled but the max:min size ratio is essentially
+unchanged (1.62 MB : 843 KB ≈ 1.9× — same as before), so absolute
+load-time differences scale with size and stay a similar fraction of the
+shorter loop. Fully fixing it would require the embed-mode layout
+(electrostatics inside convergence.gif, one file, zero offset), which
+the user previously rejected for the per-field table look.
+
+Defensive fix while regenerating: applied the CPU-DB workaround from
+CRASH_DIAGNOSIS.md to evaluator/run_placement.py too. sb12 + gpu=1 has
+worked empirically in prior renders (below the superblue15 size
+threshold), but the patch eliminates an entire crash class for any
+future evoplace-side rendering on larger benchmarks.

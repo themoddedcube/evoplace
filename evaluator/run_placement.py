@@ -347,8 +347,16 @@ def run_placement(
     t0 = time.perf_counter()
     divergence = 0
     try:
+        # GB10 / driver 580.142 / CUDA 13.0: building PlaceDB on GPU triggers
+        # Xid 31 GPU MMU faults on large benchmarks (superblue15 confirmed)
+        # and hard-hangs the box. Build the DB on CPU, then restore the JSON
+        # config's gpu flag before constructing the placer. See
+        # CRASH_DIAGNOSIS.md.
+        wants_gpu = int(getattr(params, "gpu", 0))
+        params.gpu = 0
         db = PlaceDB.PlaceDB()
         db(params)
+        params.gpu = wants_gpu
 
         # Path-group timing weights (Exp 4 / Variant A).
         # Runs only when both Liberty and SDC inputs are present in params.

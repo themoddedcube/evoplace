@@ -46,11 +46,11 @@ statistically real, practically tiny; the campaign's boundary result (see
 Full convergence of DREAMPlace's default flow on superblue12, cells rendered
 as density scatter (128 GB unified memory holds the whole design resident).
 
-<img src="graphs/comparisons/superblue12_showcase/convergence.gif?v=2" width="100%">
+<img src="graphs/comparisons/superblue12_showcase/convergence.gif?v=3" width="100%">
 
 | Density | Potential | Field magnitude |
 |:---:|:---:|:---:|
-| ![superblue12 density](graphs/comparisons/superblue12_showcase/density.gif?v=2) | ![superblue12 potential](graphs/comparisons/superblue12_showcase/potential.gif?v=2) | ![superblue12 field](graphs/comparisons/superblue12_showcase/field.gif?v=2) |
+| ![superblue12 density](graphs/comparisons/superblue12_showcase/density.gif?v=3) | ![superblue12 potential](graphs/comparisons/superblue12_showcase/potential.gif?v=3) | ![superblue12 field](graphs/comparisons/superblue12_showcase/field.gif?v=3) |
 
 
 ---
